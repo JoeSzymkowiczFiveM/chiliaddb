@@ -26,6 +26,8 @@ If you are interested in the project, come say Hi in Discord.
 
 ## 👀 Usage
 
+- In the `web` directory, `npm i` and `npm run build` to build the UI
+
 - Add the following line to the fxmanifest of the resource you want to use chiliaddb in:
 ```
 server_script '@chiliaddb/init.lua'
