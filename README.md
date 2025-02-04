@@ -73,6 +73,7 @@ set ox:printlevel:chiliaddb "error"
 
 ## 👀 Tips
 
+- I used [chiliaddb_tester](https://github.com/JoeSzymkowiczFiveM/chiliaddb_tester) to unit test the resource as I worked on it, but it also creates a good amount of test data and hold many usage examples. Try taking a look at that resource.
 - In converting several frameworks and scripts in the development of this driver, I found that tables are `json.encode`'d when are inserted into the database. These tables no longer need to be `decoded` so keep an eye out for these if you're converting existing code.
 - At the moment, there is not much notification or validation of mismatched types on the fields vs passed query parameters. Be sure the datatypes of compared fields are matching.
 
