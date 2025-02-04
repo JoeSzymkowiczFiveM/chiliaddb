@@ -78,6 +78,11 @@ set ox:printlevel:chiliaddb "error"
 - At the moment, there is not much notification or validation of mismatched types on the fields vs passed query parameters. Be sure the datatypes of compared fields are matching.
 
 
+## 🖼️ Screenshots
+
+![image](https://github.com/user-attachments/assets/df41d60e-6939-4a2d-adc2-84958268bee3)
+
+
 ## 👐 Credit
 
 Big thanks to [Snipe](https://github.com/snipe-scripts) for constructing the datastore UI and the constructive conversations over the years. Also shoutout to [darktrovx](https://github.com/darktrovx) and [Zoo](https://github.com/FjamZoo) for discussions regarding datastores and fivem technical randomness. Also, huge shoutout to the [Overextended](https://github.com/overextended) group for technical discussions and support throughout most of the work I've done.
