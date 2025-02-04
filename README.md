@@ -40,6 +40,7 @@ server_script '@chiliaddb/init.lua'
 
 
 ## ⌨️ Commands
+ - `/cdb_show` This opens the database explorer UI within the game.
 
  - `/cdb_print {collection name} or 'all', {document id}` This command prints the requested data. I've been using this in the server console, as I do a lot of work from the terminal, and I'm not logged into the game. I found it helpful, maybe you will too.
 
