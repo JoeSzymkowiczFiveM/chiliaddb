@@ -1,0 +1,18 @@
+:root {
+    /* common */
+    --disabling-color: rgb(100, 100, 100);
+
+    /* elevator */
+    --bg: rgb(35, 35, 35);
+    --text: rgb(182, 182, 182);
+    --heading-bg: rgb(30, 30, 30);
+    --drop-shadow: rgba(80, 80, 80, 0.25);
+    --dd-bg: rgba(30, 30, 30, 1);
+    --highlighted-text: rgba(47, 109, 208, 1);
+    --highlighted-text-light: rgba(47, 109, 208, 0.7);
+    --highlighted-text-025: rgba(47, 109, 208, 0.25);
+
+    --black-0096: rgba(153, 153, 153, 0.0096);
+    --white-009: rgba(255, 255, 255, 0.09);
+    --white-04: rgba(255, 255, 255, 0.4);
+}
