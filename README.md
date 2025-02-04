@@ -1,3 +1,7 @@
+
+![chiliaddb](https://github.com/user-attachments/assets/816812e4-447f-48ba-bb23-0cfd008e41d8)
+
+
 # ChiliadDB
 
 A NoSQL-like datastore and syntax for the built-in FiveM KVP storage system. After I was told to "Just use KVP" a thousand times, and realizing how inaccessible KVP actually was, I started looking around for any kind of existing driver/wrapper for it. While I initially worked a bit with [0xludb-fivem](https://github.com/0xwal/0xludb-fivem), it did not suit my needs and lacked core features and functionality. ChiliadDB is my attempt at making KVP more-usable and able to be used as a drop-in replaced for frameworks like Ox and Qbox, while using a syntax I was familiar with. 
