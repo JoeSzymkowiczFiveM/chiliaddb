@@ -3,7 +3,6 @@ local utils = {}
 function utils.getSortedData(data)
     local keys = {}
     for key in pairs(data) do
-        -- table.insert(keys, key)
         keys[#keys + 1] = key
     end
     table.sort(keys)
@@ -55,8 +54,81 @@ function utils.selfInsertId(id, documentData, fields)
     return documentData
 end
 
+function utils.queryMatch(document, query)
+    for k2, v2 in pairs(query) do
+        if type(v2) == 'table' then
+            for k3, v3 in pairs(v2) do
+                if not utils.advancedSearchLogic(document, k2, k3, v3) then
+                    return false
+                end
+            end
+        else
+            if document[k2] ~= v2 then
+                return false
+            end
+        end
+    end
+    return true
+end
+
 function utils.dbAccessCheck(id)
     return IsPlayerAceAllowed(id, 'group.chiliaddb')
+end
+
+function utils.filterFields(documentData, fields, findOne, include)
+    local function shouldInclude(key)
+        return include and fields[key] or not include and not fields[key]
+    end
+
+    if findOne then
+        local newDocumentData = {}
+        for key, value in pairs(documentData) do
+            if shouldInclude(key) then
+                newDocumentData[key] = value
+            end
+        end
+        return newDocumentData
+    else
+        local newDocumentData = {}
+        for index, document in pairs(documentData) do
+            local newDocument = {}
+            for key, value in pairs(document) do
+                if shouldInclude(key) then
+                    newDocument[key] = value
+                end
+            end
+            newDocumentData[index] = newDocument
+        end
+        return newDocumentData
+    end
+end
+
+function utils.excludeFields(documentData, fields, findOne)
+    return utils.filterFields(documentData, fields, findOne, false)
+end
+
+function utils.includeFields(documentData, fields, findOne)
+    return utils.filterFields(documentData, fields, findOne, true)
+end
+
+function utils.excludeIndexes(responseData, keys)
+    local newResponseData = {}
+    for i = 1, #keys do
+        if responseData[keys[i]] then
+            newResponseData[#newResponseData + 1] = responseData[keys[i]]
+        end
+    end
+    return newResponseData
+end
+
+function utils.limitResults(responseData, limit, keys)
+    local newResponseData = {}
+    for i = 1, limit do
+        if responseData[keys[i]] then
+            newResponseData[keys[i]] = responseData[keys[i]]
+        end
+    end
+    return newResponseData
 end
 
 return utils

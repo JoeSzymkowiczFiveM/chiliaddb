@@ -38,6 +38,15 @@ print(json.encode(resultUpdate, {indent=true}))
 ```
 
 
+## ✏️ ChiliadDB.replaceOne
+`replaceOne` will find the first matching document given the query filter, and replace the entire document with the provided `update` contents.
+```lua
+local resultUpdate = ChiliadDB.replaceOne({collection = 'test', query = {id = 1}, update = { name2 = 'Joseph' }})
+local resultFindOneId = ChiliadDB.findOne({collection = 'test', query = { name2 = 'Joseph' } })
+print(json.encode(resultUpdate, {indent=true}))
+```
+
+
 ## 🔎 ChiliadDB.find
 `find` is a basic search, similar to a SQL `select` that can return no to many records from a single collection, given the query parameters. If one or more results are returned, they are in an array of tables, where the keys are the associated records indexes.
 ```lua

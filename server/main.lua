@@ -60,7 +60,6 @@ local function syncDataToKvp()
             elseif amendment.action == 'delete' then
                 deleteFromKvp(amendment.collection, amendment.id)
             end
-            amendments[i] = nil
         end
         amendments = {}
         lib.print.debug(string.format("Sync to KVP complete. %s amendments made. Elapsed: %.4f ms", amendmentsCount, (os.nanotime() - start) / 1e6))
@@ -167,23 +166,8 @@ exports('findOne', function(data, resource)
         return database[collection][id]
     else
         local sortedCollection, _ = utils.getSortedData(database[collection]) --TODO: verify this is querying the collection in the correct order and truly getting first match
-        for k, v in pairs(sortedCollection) do
-            local match = true
-            for k2, v2 in pairs(query) do
-                if type(v2) == 'table' then
-                    for k3, v3 in pairs(v2) do
-                        if not utils.advancedSearchLogic(v, k2, k3, v3) then
-                            match = false
-                            break
-                        end
-                    end
-                else
-                    if v[k2] ~= v2 then
-                        match = false
-                        break
-                    end
-                end
-            end
+        for _, v in pairs(sortedCollection) do
+            local match = utils.queryMatch(v, data.query)
             if match then
                 return data.options and optionsHandlers.findOneOptionsHandler(v, data.options) or v
             end
@@ -256,14 +240,12 @@ exports('insert', function(data, resource)
     local insertedId = incrementIndex(collection)
     local foundCollection = database[collection]
     document = data.options and optionsHandlers.insertOptionsHandler(insertedId, document, data.options) or document
-    document.lastUpdated = os.time()
+    document.lastUpdated = os.time()*1000
     if foundCollection[insertedId] then
         -- lib.print.debug(string.format("Record with id %d already exists in collection %s", insertedId, collection))
         return false
     end
-    while collections[collection].locked do
-        Wait(0)
-    end
+    while collections[collection].locked do Wait(0) end
     lockCollection(collection)
     foundCollection[insertedId] = document
     addToAmendments(collection, insertedId, 'insert')
@@ -281,15 +263,14 @@ exports('update', function(data, resource)
     if data.query.id then
         local id = tonumber(data.query.id)
         if not id or not database[collection][id] then return false end
-        while collections[collection].locked do
-            Wait(0)
-        end
+        while collections[collection].locked do Wait(0) end
+
         lockCollection(collection)
 
         for k, v in pairs(data.update) do
             database[collection][id][k] = v
         end
-        database[collection][id].lastUpdated = os.time()
+        database[collection][id].lastUpdated = os.time()*1000
         addToAmendments(collection, id, 'update')
         unlockCollection(collection)
         return {id}
@@ -297,31 +278,15 @@ exports('update', function(data, resource)
         local responseData = {}
         if database[collection] then 
             for k, v in pairs(database[collection]) do
-                local match = true
-                for k2, v2 in pairs(data.query) do
-                    if type(v2) == 'table' then
-                        for k3, v3 in pairs(v2) do
-                            if not utils.advancedSearchLogic(v, k2, k3, v3) then
-                                match = false
-                                break
-                            end
-                        end
-                    else
-                        if v[k2] ~= v2 then
-                            match = false
-                            break
-                        end
-                    end
-                end
+                local match = utils.queryMatch(v, data.query)
                 if match then
-                    while collections[collection].locked do
-                        Wait(0)
-                    end
+                    while collections[collection].locked do Wait(0) end
+
                     lockCollection(collection)
                     for k2, v2 in pairs(data.update) do
                         database[collection][k][k2] = v2
                     end
-                    database[collection][k].lastUpdated = os.time()
+                    database[collection][k].lastUpdated = os.time()*1000
                     addToAmendments(collection, k, 'update')
                     responseData[#responseData + 1] = k
                     unlockCollection(collection)
@@ -341,10 +306,8 @@ exports('update', function(data, resource)
             if options.selfInsertId then
                 newInsertDocument = utils.selfInsertId(insertedId, newInsertDocument, options.selfInsertId)
             end
-            newInsertDocument.lastUpdated = os.time()
-            while collections[collection].locked do
-                Wait(0)
-            end
+            newInsertDocument.lastUpdated = os.time()*1000
+            while collections[collection].locked do Wait(0) end
 
             lockCollection(collection)
             database[collection][insertedId] = newInsertDocument
@@ -368,18 +331,16 @@ exports('delete', function(data, resource)
         local id = tonumber(query.id)
         if not id or not database[collection][id] then return false end
 
-        while collections[collection].locked do
-            Wait(0)
-        end
+        while collections[collection].locked do Wait(0) end
+
         lockCollection(collection)
         deleteDocument(collection, id)
         unlockCollection(collection)
         return {id}
     else
         local response = queryHandlers.delete(database[collection], query)
-        while collections[collection].locked do
-            Wait(0)
-        end
+        while collections[collection].locked do Wait(0) end
+
         lockCollection(collection)
         deleteDocuments(collection, response)
         unlockCollection(collection)
@@ -400,30 +361,72 @@ exports('exists', function(data, resource)
         if not id or not foundCollection[id] then return false end
         return true
     else
-        for _, v in pairs(foundCollection) do
-            local match = true
-            for k2, v2 in pairs(data.query) do
-                if type(v2) == 'table' then
-                    for k3, v3 in pairs(v2) do
-                        if not utils.advancedSearchLogic(v, k2, k3, v3) then
-                            match = false
-                            break
-                        end
-                    end
-                else
-                    if v[k2] ~= v2 then
-                        match = false
-                        break
-                    end
-                end
-            end
-            if match then
-                return true
-            end
-        end
-        return false
+        return queryHandlers.exists(foundCollection, data.query)
     end
 end)
+
+exports('insert', function(data, resource)
+    if not data or not data.collection or not data.document then
+        lib.print.error("insert call was improperly formatted, returning false. Called from %s. Sent data %s", resource, json.encode(data))
+        return false
+    end
+    --skipIfExists only works for non-table values
+    if data.options and data.options.skipIfExists and skipIfExistsHandler(data.collection, data.document, data.options) == false then return false end
+    local collection, document = tostring(data.collection), data.document
+    local insertedId = incrementIndex(collection)
+    local foundCollection = database[collection]
+    document = data.options and optionsHandlers.insertOptionsHandler(insertedId, document, data.options) or document
+    document.lastUpdated = os.time()*1000
+    if foundCollection[insertedId] then
+        -- lib.print.debug(string.format("Record with id %d already exists in collection %s", insertedId, collection))
+        return false
+    end
+    while collections[collection].locked do Wait(0) end
+
+    lockCollection(collection)
+    foundCollection[insertedId] = document
+    addToAmendments(collection, insertedId, 'insert')
+    unlockCollection(collection)
+    return insertedId
+end)
+
+exports('replaceOne', function(data, resource)
+    if not data or not data.collection or not data.query or not data.document then
+        lib.print.error("replaceOne call was improperly formatted, returning false. Called from %s", resource, json.encode(data))
+        return false
+    end
+    local collection = tostring(data.collection)
+    -- if not databaseCollectionCheck(collection, resource) then return false end
+    if data.query.id then
+        local id = tonumber(data.query.id)
+        if not id or not database[collection][id] then return false end
+        while collections[collection].locked do Wait(0) end
+
+        data.document.lastUpdated = os.time()*1000
+        lockCollection(collection)
+        database[collection][id] = data.document
+        addToAmendments(collection, id, 'update')
+        unlockCollection(collection)
+        return {id}
+    else
+        local responseData = {}
+        local sortedCollection, _ = utils.getSortedData(database[collection]) --TODO: verify this is querying the collection in the correct order and truly getting first match
+        for k, v in pairs(sortedCollection) do
+            local match = utils.queryMatch(v, data.query)
+            if match then
+                while collections[collection].locked do Wait(0) end
+                data.document.lastUpdated = os.time()*1000
+                lockCollection(collection)
+                database[collection][k] = data.document
+                addToAmendments(collection, k, 'update')
+                unlockCollection(collection)
+                responseData[#responseData + 1] = k
+                return responseData
+            end
+        end
+    end
+end)
+
 
 exports('getCollectionCurrentIndex', getCurrentCollectionIndex)
 
@@ -464,7 +467,8 @@ AddEventHandler('onResourceStop', function(resource)
     syncDataToKvp()
 end)
 
-lib.cron.new('*/5 * * * *', function()
+local cronString = string.format('*/%s * * * *', GetConvarInt('chiliaddb:syncInterval', 5))
+lib.cron.new(cronString, function()
     syncDataToKvp()
 end)
 

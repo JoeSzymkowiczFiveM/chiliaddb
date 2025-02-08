@@ -21,12 +21,15 @@ If you are interested in the project, come say Hi in Discord.
 
 
 ## ✅ Dependencies
+ - [nodejs](https://nodejs.org/en) v18+
  - [ox_lib](https://github.com/overextended/ox_lib) v3.28.1 or higher
 
 
 ## 👀 Usage
 
-- In the `web` directory, `npm i` and `npm run build` to build the UI
+- Install `pnpm` globally; `npm install -g pnpm`
+
+- In the `web` directory of this resource, `pnpm install` and `pnpm run build` to build the UI
 
 - Add the following line to the fxmanifest of the resource you want to use chiliaddb in:
 ```
@@ -63,6 +66,8 @@ add_principal identifier.license:YourFiveMLicense group.chiliaddb
 
 # Set the print level for the chiliaddb.
 set ox:printlevel:chiliaddb "error"
+# Set the interval, in minutes, that the data will be synced to kvp.
+set chiliaddb:syncInterval 5
 ```
 
 
