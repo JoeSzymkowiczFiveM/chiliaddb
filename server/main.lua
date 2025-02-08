@@ -151,7 +151,7 @@ end)
 
 exports('findOne', function(data, resource)
     if not data or not data.collection or not data.query then
-        lib.print.error("FindOne call was improperly formatted, returning false. Called from %s. Sent data %s", resource, json.encode(data))
+        lib.print.error(string.format("FindOne call was improperly formatted, returning false. Called from %s. Sent data %s", resource, json.encode(data)))
         return false
     end
     local collection = tostring(data.collection)
@@ -229,33 +229,9 @@ local function dropCollection(collection)
     FlushResourceKvp()
 end
 
-exports('insert', function(data, resource)
-    if not data or not data.collection or not data.document then
-        lib.print.error("insert call was improperly formatted, returning false. Called from %s. Sent data %s", resource, json.encode(data))
-        return false
-    end
-    --skipIfExists only works for non-table values
-    if data.options and data.options.skipIfExists and skipIfExistsHandler(data.collection, data.document, data.options) == false then return false end
-    local collection, document = tostring(data.collection), data.document
-    local insertedId = incrementIndex(collection)
-    local foundCollection = database[collection]
-    document = data.options and optionsHandlers.insertOptionsHandler(insertedId, document, data.options) or document
-    document.lastUpdated = os.time()*1000
-    if foundCollection[insertedId] then
-        -- lib.print.debug(string.format("Record with id %d already exists in collection %s", insertedId, collection))
-        return false
-    end
-    while collections[collection].locked do Wait(0) end
-    lockCollection(collection)
-    foundCollection[insertedId] = document
-    addToAmendments(collection, insertedId, 'insert')
-    unlockCollection(collection)
-    return insertedId
-end)
-
 exports('update', function(data, resource)
     if not data or not data.collection or not data.query or not data.update then
-        lib.print.error("update call was improperly formatted, returning false. Called from %s", resource, json.encode(data))
+        lib.print.error(string.format("update call was improperly formatted, returning false. Called from %s. Sent data %s", resource, json.encode(data)))
         return false
     end
     local collection = tostring(data.collection)
@@ -321,7 +297,7 @@ end)
 
 exports('delete', function(data, resource)
     if not data or not data.collection or not data.query then 
-        lib.print.error("delete call was improperly formatted, returning false. Called from %s. Sent data %s", resource, json.encode(data))
+        lib.print.error(string.format("delete call was improperly formatted, returning false. Called from %s. Sent data %s", resource, json.encode(data)))
         return false
     end
     local collection = tostring(data.collection)
@@ -350,7 +326,7 @@ end)
 
 exports('exists', function(data, resource)
     if not data or not data.collection or not data.query then
-        lib.print.error("exists call was improperly formatted, returning false. Called from %s. Sent data %s", resource, json.encode(data))
+        lib.print.error(string.format("exists call was improperly formatted, returning false. Called from %s. Sent data %s", resource, json.encode(data)))
         return false
     end
     local collection = tostring(data.collection)
@@ -367,7 +343,7 @@ end)
 
 exports('insert', function(data, resource)
     if not data or not data.collection or not data.document then
-        lib.print.error("insert call was improperly formatted, returning false. Called from %s. Sent data %s", resource, json.encode(data))
+        lib.print.error(string.format("insert call was improperly formatted, returning false. Called from %s. Sent data %s", resource, json.encode(data)))
         return false
     end
     --skipIfExists only works for non-table values
@@ -392,7 +368,7 @@ end)
 
 exports('replaceOne', function(data, resource)
     if not data or not data.collection or not data.query or not data.document then
-        lib.print.error("replaceOne call was improperly formatted, returning false. Called from %s", resource, json.encode(data))
+        lib.print.error(string.format("replaceOne call was improperly formatted, returning false. Called from %s. Sent data %s", resource, json.encode(data)))
         return false
     end
     local collection = tostring(data.collection)
@@ -444,7 +420,7 @@ exports('dropCollection', dropCollection)
 
 exports('getCollectionDocumentCount', function(data, resource)
     if not data or not data.collection then
-        lib.print.error("getCollectionDocumentCount call was improperly formatted, returning false. Called from %s. Sent data %s", resource, json.encode(data))
+        lib.print.error(string.format("getCollectionDocumentCount call was improperly formatted, returning false. Called from %s. Sent data %s", resource, json.encode(data)))
         return false
     end
     local count = 0
