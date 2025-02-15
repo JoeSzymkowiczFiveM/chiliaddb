@@ -134,7 +134,7 @@ end
 exports('find', function(data, resource)
     if not data or not data.collection then
         lib.print.error(string.format("Find call was improperly formatted, returning empty table. Called from %s. Sent data %s", resource, json.encode(data)))
-        return {}
+        return false
     end
     if not databaseCollectionCheck(data.collection, resource) then return {} end
     local foundCollection = database[data.collection]
@@ -155,7 +155,7 @@ exports('findOne', function(data, resource)
         return false
     end
     local collection = tostring(data.collection)
-    if not databaseCollectionCheck(collection, resource) then return false end
+    if not databaseCollectionCheck(collection, resource) then return {} end
     local query = data.query
     if query.id then
         local id = query.id
@@ -235,10 +235,9 @@ exports('update', function(data, resource)
         return false
     end
     local collection = tostring(data.collection)
-    -- if not databaseCollectionCheck(collection, resource) then return false end
     if data.query.id then
         local id = tonumber(data.query.id)
-        if not id or not database[collection][id] then return false end
+        if not id or not database[collection] or not database[collection][id] then return false end
         while collections[collection].locked do Wait(0) end
 
         lockCollection(collection)
@@ -372,10 +371,9 @@ exports('replaceOne', function(data, resource)
         return false
     end
     local collection = tostring(data.collection)
-    -- if not databaseCollectionCheck(collection, resource) then return false end
     if data.query.id then
         local id = tonumber(data.query.id)
-        if not id or not database[collection][id] then return false end
+        if not id or not database[collection] or not database[collection][id] then return false end
         while collections[collection].locked do Wait(0) end
 
         data.document.lastUpdated = os.time()*1000
@@ -383,23 +381,21 @@ exports('replaceOne', function(data, resource)
         database[collection][id] = data.document
         addToAmendments(collection, id, 'update')
         unlockCollection(collection)
-        return {id}
+        return id
     else
-        local responseData = {}
         local sortedCollection, _ = utils.getSortedData(database[collection]) --TODO: verify this is querying the collection in the correct order and truly getting first match
         for k, v in pairs(sortedCollection) do
-            local match = utils.queryMatch(v, data.query)
-            if match then
+            if utils.queryMatch(v, data.query) then
                 while collections[collection].locked do Wait(0) end
-                data.document.lastUpdated = os.time()*1000
+                data.document.lastUpdated = os.time() * 1000
                 lockCollection(collection)
                 database[collection][k] = data.document
                 addToAmendments(collection, k, 'update')
                 unlockCollection(collection)
-                responseData[#responseData + 1] = k
-                return responseData
+                return k
             end
         end
+        return false
     end
 end)
 

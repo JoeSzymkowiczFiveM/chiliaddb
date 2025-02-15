@@ -48,4 +48,12 @@ local result = ChiliadDB.find({collection = 'test', query = { permission = { ['$
 print(json.encode(result, {indent=true})) -- returns documents where permission is 'admin'
 ```
 
+### `$exists`
+
+The `$exists` operator is used to query documents where a specified field exists or does not exist. It can be used to check for the presence or absence of a field in the documents. When set to `true`, it matches documents that contain the field, and when set to `false`, it matches documents that do not contain the field.
+```lua
+local result = ChiliadDB.find({collection = 'test', query = { permission = { ['$exists'] = 'true' } }})
+print(json.encode(result, {indent=true})) -- returns documents where permission key/value exists, regardless of value
+```
+
 These operators can be combined to create more complex queries, allowing for powerful and flexible data retrieval.

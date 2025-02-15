@@ -21,7 +21,7 @@ If you are interested in the project, come say Hi in Discord.
 
 
 ## ✅ Dependencies
- - [nodejs](https://nodejs.org/en) v18+
+ - [nodejs](https://nodejs.org/en) v18 or higher
  - [ox_lib](https://github.com/overextended/ox_lib) v3.28.1 or higher
 
 

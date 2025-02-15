@@ -2,6 +2,13 @@
 
 Below are several examples usages examples of functions within ChiliadDB.
 
+## 🏎️ ChiliadDB.ready
+`ready` is triggered once the database has been loaded and the resource is ready to accept calls. It is not guaranteed that ChiliadDB has propagated by the time subsequent resources are started. If you're resource needs to be initially loaded with data on start, use this.
+```lua
+ChiliadDB.ready(function()
+    print('ChiliadDB is loaded and ready for calls')
+end)
+```
 
 ## ✏️ ChiliadDB.insert
 `insert` is how you create new documents in the datastore. At the moment, the driver can create a single document each call, and will return
@@ -41,7 +48,7 @@ print(json.encode(resultUpdate, {indent=true}))
 ## ✏️ ChiliadDB.replaceOne
 `replaceOne` will find the first matching document given the query filter, and replace the entire document with the provided `update` contents.
 ```lua
-local resultUpdate = ChiliadDB.replaceOne({collection = 'test', query = {id = 1}, update = { name2 = 'Joseph' }})
+local resultUpdate = ChiliadDB.replaceOne({collection = 'test', query = {id = 1}, document = { name2 = 'Joseph' }})
 local resultFindOneId = ChiliadDB.findOne({collection = 'test', query = { name2 = 'Joseph' } })
 print(json.encode(resultUpdate, {indent=true}))
 ```

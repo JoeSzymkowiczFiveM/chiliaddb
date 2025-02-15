@@ -26,14 +26,16 @@ function utils.advancedSearchLogic(v, k2, k3, v3)
         end
         return match
     else
-        if type(v[k2]) ~= type(v3) then return false end
         local comparisonOps = {
-            ['$gt'] = function(a, b) return a > b end,
-            ['$gte'] = function(a, b) return a >= b end,
-            ['$lt'] = function(a, b) return a < b end,
-            ['$lte'] = function(a, b) return a <= b end,
+            ['$gt'] = function(a, b) return type(a) == 'number' and type(b) == 'number' and a > b end,
+            ['$gte'] = function(a, b) return type(a) == 'number' and type(b) == 'number' and a >= b end,
+            ['$lt'] = function(a, b) return type(a) == 'number' and type(b) == 'number' and a < b end,
+            ['$lte'] = function(a, b) return type(a) == 'number' and type(b) == 'number' and a <= b end,
             ['$ne'] = function(a, b) return a ~= b end,
-            ['$eq'] = function(a, b) return a == b end
+            ['$eq'] = function(a, b) return a == b end,
+            ['$exists'] = function(a, b) return (b and a ~= nil) or (not b and a == nil) end,
+            ['$in'] = function(a, b) return table.contains(b, a) end,
+            ['$nin'] = function(a, b) return not table.contains(b, a) end
         }
         return comparisonOps[k3] and comparisonOps[k3](v[k2], v3) or false
     end
