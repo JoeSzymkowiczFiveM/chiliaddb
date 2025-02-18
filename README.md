@@ -8,6 +8,8 @@ A NoSQL-like datastore and syntax for the built-in FiveM KVP storage system. Aft
 
 NOTE: Like Trevor Phillips, the API and syntax should be considered unstable. It has not been tested on a real production server, with an active playerbase, and this is not recommended for production usage. I still have work planned for this and PRs are always welcome. Also, the UI has very basic delete and updata capability, which has not been fully tested or validated. It has a lot of capability that could allow you to break your data. Beware.
 
+The FiveM server KVP is stored in the `db` folder in the root of your server. Thus, if you delete this folder or lose it somehow, you're database is gone. Use the `cdb_export` to create backups.
+
 If you are interested in the project, come say Hi in Discord.
 
 

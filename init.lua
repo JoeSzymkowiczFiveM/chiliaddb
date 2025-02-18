@@ -20,7 +20,7 @@ if IsDuplicityVersion() then
 
         repeat
             Wait(5)
-        until chiliaddb:propagated()
+        until chiliaddb:loaded()
         cb()
     end
 

@@ -3,7 +3,7 @@
 Below are several examples usages examples of functions within ChiliadDB.
 
 ## 🏎️ ChiliadDB.ready
-`ready` is triggered once the database has been loaded and the resource is ready to accept calls. It is not guaranteed that ChiliadDB has propagated by the time subsequent resources are started. If you're resource needs to be initially loaded with data on start, use this.
+`ready` is triggered once the datastore has been loaded and the resource is ready to accept calls. It is not guaranteed that ChiliadDB has propagated by the time subsequent resources are started. If you're resource needs to be initially loaded with data on start, use this.
 ```lua
 ChiliadDB.ready(function()
     print('ChiliadDB is loaded and ready for calls')
@@ -69,7 +69,7 @@ You can pass `options` parameters, to further help the search and response of th
 This will limit the response records to the number specified in the `limit` value
 
 #### excludeIndexes
-This will remove the associated index/key from each record in the response, and pass back an entirely sequential array of tables. It's worth noting that since the you can delete records from the database, it's possible to create 'holes' in the indexes.
+This will remove the associated index/key from each record in the response, and pass back an entirely sequential array of tables. It's worth noting that since the you can delete records from the datastore, it's possible to create 'holes' in the indexes.
 
 #### excludeFields
 This will specify any fields that should not be included in the the response object(s).
@@ -108,3 +108,37 @@ ChiliadDB.delete({collection = 'test'}, query = { permission = 'god' })
 local resultExists = ChiliadDB.exists({collection = 'test'}, query = { permission = 'pleb' })
 print(result) -- resultExists is return if a record in the specified collection matches the included criteria; false if not
 ```
+
+
+## 📗 ChiliadDB.createCollection
+`createCollection` will create a new collection
+```lua
+local resultExists = ChiliadDB.createCollection('testCollection')
+```
+
+
+## 🗑️ ChiliadDB.dropCollection
+`dropCollection` will remove the collection specified and any documents within in.
+```lua
+local resultExists = ChiliadDB.dropCollection('testCollection')
+```
+
+
+## ⚙️ ChiliadDB.getCollectionProperties
+`getCollectionProperties` will retrieve the proprties of the requested collection name, like the `currentIndex`, etc. If the collection doesn't exist, this will return false.
+```lua
+local resultExists = ChiliadDB.getCollectionProperties('testCollection')
+```
+
+
+## ⚙️ ChiliadDB.setCollectionProperties
+`setCollectionProperties` will retrieve the proprties of the requested collection name, like the `retention`, etc. If the collection doesn't exist, this will create the collection.
+```lua
+local resultExists = ChiliadDB.setCollectionProperties({collection = 'testCollection', retention = {seconds = 5, minutes = 1}})
+```
+
+### `.setCollectionProperties` settings
+You can modify a number of parameters on collections that change behaviors of documents in that collection.
+
+#### retention
+This sets the amount of time documents, unmodified, in this collection will be retained within the collection. This can be set using `seconds`, `minutes`, `hours`, `days`, `months`. Upon startup of the datastore, if the `lastUpdated` values on the document exceeds the `retention` amount, it will be not be loaded into the datastore and deleted from the KVP.

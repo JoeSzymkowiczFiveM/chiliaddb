@@ -5,8 +5,6 @@
     import mainStore from '../../stores/mainStore';
     import generalStore from '../../stores/generalStore';
     import fetchNui from '../../utils/fetch';
-    // import { JsonView } from '@zerodevx/svelte-json-view';
-    // import JsonEditor from 'svelte-jsoneditor/components/JSONEditor.svelte';
     import { JSONEditor } from 'svelte-jsoneditor';
 
     let { uiData } = mainStore;

@@ -1,7 +1,7 @@
 -- TODO: Lots of cleanup is needed and apply validations and error handling uniformly across all functions.
 -- TODO: think about setting whether tables are loaded at boot or on demand. maybe define in indexes how each collection should be loaded; at start or on demand.
 -- TODO: Given that the nosync kvp functions aren't io or system intensive, maybe we just call them directly instead of spooling amendments
--- TODO: For operators that rely on numeric compareison, validate that the passed value is numeric, and remove the passed compison operate if not, ie lt, gt
+-- TODO: For operators that rely on numeric comparison, validate that the passed value is numeric, and remove the passed comparison operator if not, ie lt, gt
 -- TODO: Maybe implement a locking mechanism on each collection
 if not lib.checkDependency('ox_lib', '3.28.1', true) then return end
 
@@ -28,14 +28,17 @@ local function unlockCollection(collection)
     collections[collection].locked = false
 end
 
-local function getCurrentCollectionIndex(data)
-    if not data.collection then return end
-    local collection = data.collection
-    if not collections[collection] then
-        -- lib.print.error(string.format("Collection %s ^1DOES NOT EXIST^7, called from %s", collection, resource))
-        return
-    end
-    return collections[data.collection].currentIndex
+local function findById(collection, id)
+    local key = tonumber(id)
+    if not database[collection] then return end
+    return database[collection][key]
+end
+
+local function createCollection(collection)
+    collections[collection] = {
+        locked = false,
+        currentIndex = 0
+    }
 end
 
 local function insertUpdateIntoKvp(collection, id)
@@ -69,20 +72,29 @@ end
 
 local function propagateDatabaseFromKvp()
     local responseDatabase = {}
-    for k, _ in pairs(collections) do
-        responseDatabase[k] = {}
-        local colonPos = string.len(k) + 2
-        local collectionKey = string.format("%s:", k)
+    local nowTime = os.time()*1000
+    for collectionName, collectionProps in pairs(collections) do
+        responseDatabase[collectionName] = {}
+        local colonPos = string.len(collectionName) + 2
+        local collectionKey = string.format("%s:", collectionName)
         local kvpHandle = StartFindKvp(collectionKey)
         if kvpHandle ~= -1 then
             local key
             repeat
                 key = FindKvp(kvpHandle)
                 if key then
-                    -- local index = tonumber(string.sub(key, colonPos, string.len(key)))
-                    local index = tonumber(string.sub(key, colonPos))
+                    local index = tonumber(key:sub(colonPos))
                     if index then
-                        responseDatabase[k][index] = json.decode(GetResourceKvpString(key))
+                        local data = json.decode(GetResourceKvpString(key))
+                        if collectionProps.retention then
+                            if data.lastUpdated + collectionProps.retention >= nowTime then
+                                responseDatabase[collectionName][index] = data
+                            else
+                                DeleteResourceKvpNoSync(key)
+                            end
+                        else
+                            responseDatabase[collectionName][index] = data
+                        end
                     end
                 end
             until not key
@@ -93,12 +105,10 @@ local function propagateDatabaseFromKvp()
 end
 
 local function incrementIndex(collection)
+    if not collections[collection] then collections[collection] = {} end
     if not database[collection] then database[collection] = {} end
-    if collections[collection] then
-        collections[collection].currentIndex = collections[collection].currentIndex + 1
-    else
-        collections[collection] = { currentIndex = 1 }
-    end
+    if not collections[collection].currentIndex then createCollection(collection) end
+    collections[collection].currentIndex = collections[collection].currentIndex + 1
     return collections[collection].currentIndex
 end
 
@@ -158,12 +168,7 @@ exports('findOne', function(data, resource)
     if not databaseCollectionCheck(collection, resource) then return {} end
     local query = data.query
     if query.id then
-        local id = query.id
-        if not type(id) == 'number' then
-            print(string.format("passed id is not numeric, %s, returning empty collection", id))
-            return {}
-        end
-        return database[collection][id]
+        return findById(collection, query.id)
     else
         local sortedCollection, _ = utils.getSortedData(database[collection]) --TODO: verify this is querying the collection in the correct order and truly getting first match
         for _, v in pairs(sortedCollection) do
@@ -211,7 +216,7 @@ end
 local function dropCollection(collection)
     if not database[collection] then
         lib.print.error(string.format("dropCollection failed. Collection %s does not exist", collection))
-        return
+        return false
     end
     local newAmendments = {}
     for i = 1, #amendments do
@@ -227,6 +232,7 @@ local function dropCollection(collection)
     database[collection] = nil
     SetResourceKvpNoSync("collections", json.encode(collections))
     FlushResourceKvp()
+    return true
 end
 
 exports('update', function(data, resource)
@@ -332,9 +338,7 @@ exports('exists', function(data, resource)
     local foundCollection = database[collection]
     if not foundCollection then return false end
     if data.query.id then
-        local id = tonumber(data.query.id)
-        if not id or not foundCollection[id] then return false end
-        return true
+        return findById(collection, data.query.id) and true or false
     else
         return queryHandlers.exists(foundCollection, data.query)
     end
@@ -387,7 +391,7 @@ exports('replaceOne', function(data, resource)
         for k, v in pairs(sortedCollection) do
             if utils.queryMatch(v, data.query) then
                 while collections[collection].locked do Wait(0) end
-                data.document.lastUpdated = os.time() * 1000
+                data.document.lastUpdated = os.time()*1000
                 lockCollection(collection)
                 database[collection][k] = data.document
                 addToAmendments(collection, k, 'update')
@@ -399,14 +403,12 @@ exports('replaceOne', function(data, resource)
     end
 end)
 
-
-exports('getCollectionCurrentIndex', getCurrentCollectionIndex)
-
+--- @return number
 exports('getAmendmentsCount', function()
-    return #amendments
+    return #amendments or 0
 end)
 
-exports('propagated', function()
+exports('loaded', function()
     return dbLoaded
 end)
 
@@ -414,17 +416,60 @@ exports('synckvp', syncDataToKvp)
 
 exports('dropCollection', dropCollection)
 
-exports('getCollectionDocumentCount', function(data, resource)
-    if not data or not data.collection then
-        lib.print.error(string.format("getCollectionDocumentCount call was improperly formatted, returning false. Called from %s. Sent data %s", resource, json.encode(data)))
+exports('getCollectionDocumentCount', function(collection, resource)
+    collection = tostring(collection)
+    if not collection then
+        lib.print.error(string.format("getCollectionDocumentCount call was improperly formatted, returning false. Called from %s. Sent data %s", resource, collection))
         return false
     end
     local count = 0
-    if not databaseCollectionCheck(data.collection, resource) then return 0 end
-    for _ in pairs(database[data.collection]) do
-        count = count + 1
+    if not databaseCollectionCheck(collection, resource) then return 0 end
+    for _ in pairs(database[collection]) do
+        count += 1
     end
     return count
+end)
+
+exports('createCollection', function(collection, resource)
+    collection = tostring(collection)
+    if not collection then
+        lib.print.error(string.format("createCollection call was improperly formatted, returning false. Called from %s. Sent data %s", resource, collection))
+        return false
+    end
+    if collections[collection] then
+        lib.print.error(string.format("createCollection call failed. Collection %s already exists", collection))
+        return false
+    end
+    createCollection(collection)
+    return true
+end)
+
+exports('setCollectionProperties', function(data, resource)
+    if not data or not data.collection or not data.retention then
+        lib.print.error(string.format("setCollectionProperties call was improperly formatted, returning false. Called from %s. Sent data %s", resource, json.encode(data)))
+        return false
+    end
+    if data.retention then
+        if data.retention.remove then
+            collections[data.collection].retention = nil
+        else
+            local calculatedMillis = utils.calculateMillis(data.retention)
+            if not databaseCollectionCheck(data.collection, resource) then
+                createCollection(data.collection)
+            end
+            collections[data.collection].retention = calculatedMillis
+        end
+    end
+    return true
+end)
+
+exports('getCollectionProperties', function(collection, resource)
+    collection = tostring(collection)
+    if not collection then
+        lib.print.error(string.format("getCollectionProperties call was improperly formatted, returning false. Called from %s. Sent data %s", resource, json.encode(collection)))
+        return false
+    end
+    return collections[collection] or false
 end)
 
 AddEventHandler('onResourceStart', function(resource)

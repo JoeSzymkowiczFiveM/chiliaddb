@@ -6,12 +6,10 @@ function utils.getSortedData(data)
         keys[#keys + 1] = key
     end
     table.sort(keys)
-    
     local sortedData = {}
     for _, key in ipairs(keys) do
         sortedData[key] = data[key]
     end
-    
     return sortedData, keys
 end
 
@@ -131,6 +129,15 @@ function utils.limitResults(responseData, limit, keys)
         end
     end
     return newResponseData
+end
+
+function utils.calculateMillis(retention)
+    local timeUnits = {months = 2592000, days = 86400, hours = 3600, minutes = 60, seconds = 1}
+    local millis = 0
+    for unit, seconds in pairs(timeUnits) do
+        millis = millis + (retention[unit] or 0) * seconds
+    end
+    return millis * 1000
 end
 
 return utils

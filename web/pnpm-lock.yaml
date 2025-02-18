@@ -14,9 +14,6 @@ importers:
       '@fortawesome/free-solid-svg-icons':
         specifier: ^6.0.0
         version: 6.7.2
-      '@zerodevx/svelte-json-view':
-        specifier: ^1.0.7
-        version: 1.0.11(svelte@3.59.2)
       svelte-fa:
         specifier: ^2.4.0
         version: 2.4.0
@@ -431,11 +428,6 @@ packages:
 
   '@windicss/plugin-utils@1.9.4':
     resolution: {integrity: sha512-GUAX0z+wnq6Rn3+YGJli/keGja73+a6I/PtTpH8EMlNNHrHBbqsbyY5+25QagV39rHwTe/IbkiSdD3csP8L6MA==}
-
-  '@zerodevx/svelte-json-view@1.0.11':
-    resolution: {integrity: sha512-mIjj0H1al/P4FPlbeDoiey93lNEUqBEAe5LIdD5GttZfEYt3awexD2lHwKNfUeY4jHizOJkoWTPN/2iO0GBqpw==}
-    peerDependencies:
-      svelte: ^3.57.0 || ^4.0.0 || ^5.0.0
 
   abab@2.0.6:
     resolution: {integrity: sha512-j2afSsaIENvHZN2B8GOpF566vZ5WVk5opAiMTvWgaQT8DkbOqsTfvNAvHoRGU2zzP8cPoqys+xHTRDWW8L+/BA==}
@@ -2212,10 +2204,6 @@ snapshots:
       windicss: 3.5.6
     transitivePeerDependencies:
       - supports-color
-
-  '@zerodevx/svelte-json-view@1.0.11(svelte@3.59.2)':
-    dependencies:
-      svelte: 3.59.2
 
   abab@2.0.6: {}
 
