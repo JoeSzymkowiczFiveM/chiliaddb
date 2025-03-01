@@ -56,4 +56,36 @@ local result = ChiliadDB.find({collection = 'test', query = { permission = { ['$
 print(json.encode(result, {indent=true})) -- returns documents where permission key/value exists, regardless of value
 ```
 
+### `$match`
+
+The `$match` operator uses the lua string.match functionality to find matches given the provided pattern. 
+```lua
+local result = ChiliadDB.find({collection = 'test', query = { permission = { ['$match'] = 'ad.*' } }})
+print(json.encode(result, {indent=true})) -- returns documents where permission matches the provided string.match pattern
+```
+
+### `$contains`
+
+The `$contains` operator uses the ox_lib `lib.table.contains` implementation to use the passed value occurs within the table within the specified field.
+```lua
+local result = ChiliadDB.find({collection = 'test', query = { name = { ['$contains'] = 'Joe' } }})
+print(json.encode(result, {indent=true})) -- returns documents where name field contains a table, and Joe is a value within that table.
+```
+
+### `$in`
+
+The `$in` operator relies on a table of values and evaluates if the specified field's value occurs within the provided table's values.
+```lua
+local result = ChiliadDB.find({collection = 'test', query = { name = { ['$in'] = {'Joe', 'Joseph'} } }})
+print(json.encode(result, {indent=true})) -- returns documents where name field contains either Joe or Joseph
+```
+
+### `$nin`
+
+The `$nin` operator relies on a table of values and evaluates if the specified field's is a value other than those within the provided table's values.
+```lua
+local result = ChiliadDB.find({collection = 'test', query = { name = { ['$nin'] = {'Joe', 'Joseph'} } }})
+print(json.encode(result, {indent=true})) -- returns documents where name field contains a value not equal to Joe or Joseph
+```
+
 These operators can be combined to create more complex queries, allowing for powerful and flexible data retrieval.

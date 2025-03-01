@@ -32,8 +32,10 @@ function utils.advancedSearchLogic(v, k2, k3, v3)
             ['$ne'] = function(a, b) return a ~= b end,
             ['$eq'] = function(a, b) return a == b end,
             ['$exists'] = function(a, b) return (b and a ~= nil) or (not b and a == nil) end,
-            ['$in'] = function(a, b) return table.contains(b, a) end,
-            ['$nin'] = function(a, b) return not table.contains(b, a) end
+            ['$in'] = function(a, b) return type(b) == 'table' and lib.table.contains(b, a) end,
+            ['$nin'] = function(a, b) return type(b) == 'table' and not lib.table.contains(b, a) end,
+            ['$match'] = function(a, b) return string.match(a, b) end,
+            ['$contains'] = function(a, b) return type(a) == 'table' and lib.table.contains(a, b) end,
         }
         return comparisonOps[k3] and comparisonOps[k3](v[k2], v3) or false
     end
