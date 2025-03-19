@@ -1,18 +1,5 @@
 local utils = {}
 
-function utils.getSortedData(data)
-    local keys = {}
-    for key in pairs(data) do
-        keys[#keys + 1] = key
-    end
-    table.sort(keys)
-    local sortedData = {}
-    for _, key in ipairs(keys) do
-        sortedData[key] = data[key]
-    end
-    return sortedData, keys
-end
-
 function utils.advancedSearchLogic(v, k2, k3, v3)
     if k3 == '$or' or k3 == '$and' then
         local match = (k3 == '$or') and false or true
@@ -140,6 +127,35 @@ function utils.calculateMillis(retention)
         millis = millis + (retention[unit] or 0) * seconds
     end
     return millis * 1000
+end
+
+function utils.paramChecker(data, resource, export)
+    if not data then
+        lib.print.error(string.format("Missing data parameter. Called from %s.", resource))
+        return false
+    end
+
+    local functionParams = {
+        find = {'collection'},
+        findOne = {'collection'},
+        update = {'collection', 'query', 'update'},
+        delete = {'collection', 'query'},
+        exists = {'collection', 'query'},
+        insert = {'collection', 'document'},
+        insertMany = {'collection', 'documents'},
+        replaceOne = {'collection', 'query', 'document'},
+        renameCollection = {'collection', 'newName'},
+        dropCollection = {'collection'},
+    }
+
+    for _, param in ipairs(functionParams[export]) do
+        if not data[param] then
+            lib.print.error(string.format("%s call missing required parameter '%s'. Called from %s.", export, param, resource))
+            return false
+        end
+    end
+
+    return true
 end
 
 return utils

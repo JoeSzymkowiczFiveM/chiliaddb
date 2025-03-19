@@ -1,23 +1,34 @@
 local optionsHandlers = {}
 local utils = require 'server.utils'
 
-function optionsHandlers.findOptionsHandler(responseData, options, keys)
-    responseData = options.excludeIndexes and utils.excludeIndexes(responseData, keys) or responseData
-    responseData = options.limit and utils.limitResults(responseData, options.limit, keys) or responseData
-    responseData = options.excludeFields and not options.includeFields and utils.excludeFields(responseData, options.excludeFields, false) or responseData
-    responseData = options.includeFields and not options.excludeFields and utils.includeFields(responseData, options.includeFields, false) or responseData
-    responseData, _ = utils.getSortedData(responseData)
+function optionsHandlers.find(responseData, options, keys)
+    if options.excludeIndexes then
+        responseData = utils.excludeIndexes(responseData, keys)
+    end
+    if options.limit then
+        responseData = utils.limitResults(responseData, options.limit, keys)
+    end
+    if options.excludeFields and not options.includeFields then
+        responseData = utils.excludeFields(responseData, options.excludeFields, false)
+    elseif options.includeFields and not options.excludeFields then
+        responseData = utils.includeFields(responseData, options.includeFields, false)
+    end
     return responseData
 end
 
-function optionsHandlers.insertOptionsHandler(id, documentData, options)
-    documentData = options.selfInsertId and utils.selfInsertId(id, documentData, options.selfInsertId) or documentData
+function optionsHandlers.insert(id, documentData, options)
+    if options.selfInsertId then
+        documentData = utils.selfInsertId(id, documentData, options.selfInsertId)
+    end
     return documentData
 end
 
-function optionsHandlers.findOneOptionsHandler(responseData, options)
-    responseData = options.excludeFields and not options.includeFields and utils.excludeFields(responseData, options.excludeFields, true) or responseData
-    responseData = options.includeFields and not options.excludeFields and utils.includeFields(responseData, options.includeFields, true) or responseData
+function optionsHandlers.findOne(responseData, options)
+    if options.excludeFields and not options.includeFields then
+        responseData = utils.excludeFields(responseData, options.excludeFields, true)
+    elseif options.includeFields and not options.excludeFields then
+        responseData = utils.includeFields(responseData, options.includeFields, true)
+    end
     return responseData
 end
 

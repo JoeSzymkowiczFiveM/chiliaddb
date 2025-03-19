@@ -11,14 +11,25 @@ end)
 ```
 
 ## ✏️ ChiliadDB.insert
-`insert` is how you create new documents in the datastore. At the moment, the driver can create a single document each call, and will return
+`insert` is how you create a new document in the datastore. At the moment, the driver can create a single document each call, and will return
 a numeric id for the inserted document, or false if insert encountered errors or skipped
 ```lua
 local resultInsert = ChiliadDB.insert({collection = 'test', document = {permission = 'god', name = 'Joe', citizenid = 1}})
 print(resultInsert) -- resultInsert is a numeric id for the inserted document, or false if insert encountered errors
 ```
 
-### `.insert` options
+## ✏️ ChiliadDB.insertMany
+`insertMany` is how you create one or many documents in the datastore. At the moment, the driver can create a single document each call, and will return
+a numeric id for the inserted document, or false if insert encountered errors or skipped
+```lua
+local resultInsert = ChiliadDB.insertMany({collection = 'test', documents = {
+    {permission = 'god', name = 'Joe', citizenid = 1},
+    {permission = 'admin', name = 'David', citizenid = 2},
+}})
+print(resultInsert) -- resultInsert is an array of ids that were inserted, given the order of the documents
+```
+
+### `.insert` and `.insertMany` options
 You can pass `options` parameters, to the `insert` function to further modify how documents are created.
 
 #### selfInsertId
@@ -48,9 +59,8 @@ print(json.encode(resultUpdate, {indent=true}))
 ## ✏️ ChiliadDB.replaceOne
 `replaceOne` will find the first matching document given the query filter, and replace the entire document with the provided `update` contents.
 ```lua
-local resultUpdate = ChiliadDB.replaceOne({collection = 'test', query = {id = 1}, document = { name2 = 'Joseph' }})
-local resultFindOneId = ChiliadDB.findOne({collection = 'test', query = { name2 = 'Joseph' } })
-print(json.encode(resultUpdate, {indent=true}))
+local resultReplaceOne = ChiliadDB.replaceOne({collection = 'test', query = {id = 1}, document = { name2 = 'Joseph' }})
+print(json.encode(resultReplaceOne, {indent=true}))
 ```
 
 
@@ -79,10 +89,11 @@ This will limit the fields in each response object(s) to the specified fields.
 
 
 ## 🔎 ChiliadDB.findOne
-`findOne` is similar to `find` but returns the first match in the collection given the query criteria, using the numeric index as a sort order, and only return a single table. This function must contain a `query`, as opposed to `find` which does not require it.
+`findOne` is similar to `find` but returns the first match in the collection given the query criteria, using the numeric index as a sort order, and only return a single table.
 ```lua
-local resultFindOne = ChiliadDB.findOne({collection = 'test', query = { permission = 'god' }, update = {  permission = 'normie' } })
-print(json.encode(resultFindOne, {indent=true})) -- resultFindOne is a table
+local findOneDocument, findOneKey = ChiliadDB.findOne({collection = 'test', query = { permission = 'god' }, update = {  permission = 'normie' } })
+print(json.encode(resultFindOne, {indent=true})) -- resultFindOne is the resulting document table, or nil if no result found
+print(findOneKey) -- findOneKey is a numeric key, or nil if no result found
 ```
 
 ### `.findOne` options

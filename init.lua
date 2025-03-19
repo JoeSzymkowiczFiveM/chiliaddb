@@ -1,36 +1,36 @@
-if IsDuplicityVersion() then
-    local chiliaddb = exports.chiliaddb
-    local resourceName = GetCurrentResourceName()
-    local GetResourceState = GetResourceState
+if not IsDuplicityVersion() then return end
 
-    ChiliadDB = setmetatable({}, {
-        __index = function(self, index)
-            self[index] = function(...)
-                return chiliaddb[index](nil, ..., resourceName)
-            end
+local chiliaddb = exports.chiliaddb
+local resourceName = GetCurrentResourceName()
+local GetResourceState = GetResourceState
 
-            return self[index]
-        end
-    })
-
-    local function onReady(cb)
-        while GetResourceState('chiliaddb') ~= 'started' do
-            Wait(50)
+ChiliadDB = setmetatable({}, {
+    __index = function(self, index)
+        self[index] = function(...)
+            return chiliaddb[index](nil, ..., resourceName)
         end
 
-        repeat
-            Wait(5)
-        until chiliaddb:loaded()
-        cb()
+        return self[index]
+    end
+})
+
+local function onReady(cb)
+    while GetResourceState('chiliaddb') ~= 'started' do
+        Wait(50)
     end
 
-    ChiliadDB.ready = setmetatable({
-        await = onReady
-    }, {
-        __call = function(_, cb)
-            Citizen.CreateThreadNow(function() onReady(cb) end)
-        end,
-    })
-
-    _ENV.ChiliadDB = ChiliadDB
+    repeat
+        Wait(5)
+    until chiliaddb:loaded()
+    cb()
 end
+
+ChiliadDB.ready = setmetatable({
+    await = onReady
+}, {
+    __call = function(_, cb)
+        Citizen.CreateThreadNow(function() onReady(cb) end)
+    end,
+})
+
+_ENV.ChiliadDB = ChiliadDB
