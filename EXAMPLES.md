@@ -121,6 +121,28 @@ print(result) -- resultExists is return if a record in the specified collection 
 ```
 
 
+## 🔎 ChiliadDB.aggregate
+`aggregate` lets you query for specific documents, and then create groupings within that set based on like data within those documents.
+```lua
+local aggregateResult = ChiliadDB.aggregate({collection = 'characters', query = {name = "test4"}, group = { fields = {"class"}, sum = "age", alias = "ageSum"} })
+print(json.encode(aggregateResult, {indent=true}))
+-- aggregateResult is the resulting aggregate of documents in the characters collection, with the name "test4". Those documents are then grouped by distinct values
+-- in the "class" field, and within each grouping, the values of the "age" fielded are added together, to a new output field called "ageSum".
+```
+
+### `group` parameters explained
+This function requires a couple specific parameters, to use it correctly. They are:
+
+#### fields
+This is one or more fields that woulld be aggregrated by like values, to create the groupings in the produced output.
+
+#### sum
+This is the target column that will be aggregated by the fields defined before.
+
+#### alias
+This allows you to name the aggregated column something else.
+
+
 ## 📗 ChiliadDB.createCollection
 `createCollection` will create a new collection
 ```lua

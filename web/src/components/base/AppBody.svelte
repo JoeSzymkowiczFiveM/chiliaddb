@@ -115,36 +115,51 @@
         isLoading = false;
     }
 
-    // async function syncChanges() {
-    //     console.log("syncing data: ", fullContent.json)
-    //     if(!$isDev) {
-    //         fetchNui('', {editedData: fullContent.json})
-    //     }
-    // }
+    function getContentSize(object) {
+        return Object.keys(object.json).length;
+    }
 
-    function handleChange(updatedContent, previousContent, { contentErrors, patchResult }) {
-        content = updatedContent;
-        let keys = Object.keys(originalJson);
-        const objectSize = keys[keys.length - 1];
-
-        if(indexOfJsonArray === null || (indexOfJsonArray && indexOfJsonArray > objectSize)) {
-            fullContent = content
-        } else {
-            fullContent.json[indexOfJsonArray] = content.json
-        }
-        
-        let id = parseInt(patchResult.redo[0].path.split('/')[1])
-        let data = patchResult.json[id]
-        let collection = selectedDropdownValue.name
+    async function handleChange(updatedContent, previousContent, { contentErrors, patchResult }) {
+        const collection = selectedDropdownValue.name
         let action = patchResult.redo[0].op
-        let submitData = {
-            id: id, 
-            collection: collection, 
-            data: data, 
-            action: action
+        if (getContentSize(updatedContent) > getContentSize(previousContent) && action === "add") { // this is creating a new document in the collection
+            const newIndexData = await fetchNui('createNewIndex', {collection: collection})
+            if (!newIndexData) {
+                console.log("Failed to create a new index.");
+                content = previousContent;
+                return;
+            }
+            updatedContent.json["New item"] = undefined;
+            delete updatedContent.json["New item"];
+            let modifiedContent = JSON.parse(JSON.stringify(updatedContent));
+            modifiedContent.json[newIndexData.id] = newIndexData.document;
+            content = modifiedContent;
+        } else if (getContentSize(updatedContent) < getContentSize(previousContent) && action === "remove") { // this is deleting a document from the collection
+            let id = parseInt(patchResult.redo[0].path.split('/')[1])
+            const response = await fetchNui('deleteDocument', {collection: collection, id: id})
+            if (!response) {
+                console.log("Failed to delete the document.");
+                content = previousContent;
+                return;
+            }
+            content = updatedContent;
+        } else if (getContentSize(updatedContent) === getContentSize(previousContent)) { // this is updating a document in the collection
+            let id = parseInt(patchResult.redo[0].path.split('/')[1])
+            let data = patchResult.json[id]
+            if (!data) {
+                console.log("No data found for the given ID.");
+                return;
+            }
+            const response = await fetchNui('updateDocument', {collection: collection, id: id, document: data})
+            if (!response) {
+                console.log("Failed to update the document.");
+                content = previousContent;
+                return;
+            }
+            content = updatedContent;
+        } else {
+            // content = updatedContent;
         }
-        
-        fetchNui('onChangeData', submitData)
     }
 </script>
 

@@ -1,15 +1,15 @@
 -- TODO: Make databaseCollectionCheck less confusing is it's used for multiple purposes, see renameCollection
 
-if not lib.checkDependency('ox_lib', '3.28.1', true) then return end
+if not lib.checkDependency('ox_lib', '3.28.1', true) then
+    print("^1FAILED^7 - ChiliadDB failed to start due to missing ox_lib dependency. Please make sure you have the latest version of ox_lib.")
+    return
+end
 
 local optionsHandlers = require 'server.optionsHandlers'
 local queryHandlers = require 'server.queryHandlers'
 local utils = require 'server.utils'
 
-local collections = {}
-local database = {}
-local amendments = {}
-local dbLoaded = false
+local collections, database, documentLocks, collectionLocks, amendments, dbLoaded = {}, {}, {}, {}, {}, false
 
 local function databaseCollectionCheck(collection, resource)
     if database[collection] then return true end
@@ -56,11 +56,12 @@ function DropCollection(collection)
 end
 
 local function lockCollection(collection)
-    collections[collection].locked = true
+    while collectionLocks[collection] do Wait(0) end
+    collectionLocks[collection] = true
 end
 
 local function unlockCollection(collection)
-    collections[collection].locked = false
+    collectionLocks[collection] = false
 end
 
 local function lockAllCollections()
@@ -73,6 +74,16 @@ local function unlockAllCollections()
     for k in pairs(collections) do
         unlockCollection(k)
     end
+end
+
+local function lockDocument(collection, id)
+    documentLocks[collection] = documentLocks[collection] or {}
+    while documentLocks[collection][id] do Wait(0) end
+    documentLocks[collection][id] = true
+end
+
+local function unlockDocument(collection, id)
+    documentLocks[collection][id] = nil
 end
 
 function BackupDatabase()
@@ -106,7 +117,6 @@ end
 
 local function createCollection(collection)
     collections[collection] = {
-        locked = false,
         currentIndex = 0,
         ids = {}
     }
@@ -225,6 +235,7 @@ local function deleteDocuments(collection, ids)
 end
 
 function ShowDatabaseCollections(source)
+    if source == 0 then return end
     local resources = {}
     for k in pairs(collections) do
         if #collections[k].ids > 0 then
@@ -233,7 +244,6 @@ function ShowDatabaseCollections(source)
         end
     end
     table.sort(resources, function (k1, k2) return k1.name < k2.name end )
-    if source == 0 then return end
     TriggerClientEvent('chiliaddb:client:openExplorer', source, resources)
 end
 
@@ -320,14 +330,14 @@ exports('update', function(data, resource)
     if query.id then
         local id = query.id
         if not database[collection] or not database[collection][id] then return false end
-        while collections[collection].locked do Wait(0) end
-        lockCollection(collection)
+        lockDocument(collection, id)
+        local document = database[collection][id]
         for k, v in pairs(data.update) do
-            database[collection][id][k] = v
+            document[k] = v
         end
-        database[collection][id].lastUpdated = os.time()*1000
+        document.lastUpdated = os.time()*1000
+        unlockDocument(collection, id)
         addToAmendments(collection, id, 'update')
-        unlockCollection(collection)
         return {id}
     else
         local responseData = {}
@@ -338,16 +348,15 @@ exports('update', function(data, resource)
                 local k = ids[i]
                 local v = foundCollection[k]
                 if utils.queryMatch(v, query) then
-                    while collections[collection].locked do Wait(0) end
-
-                    lockCollection(collection)
+                    lockDocument(collection, k)
+                    local document = database[collection][k]
                     for k2, v2 in pairs(data.update) do
-                        database[collection][k][k2] = v2
+                        document[k2] = v2
                     end
-                    database[collection][k].lastUpdated = os.time()*1000
+                    document.lastUpdated = os.time()*1000
+                    unlockDocument(collection, k)
                     addToAmendments(collection, k, 'update')
                     responseData[#responseData + 1] = k
-                    unlockCollection(collection)
                 end
             end
         end
@@ -364,11 +373,9 @@ exports('update', function(data, resource)
             if options.selfInsertId then
                 newInsertDocument = utils.selfInsertId(insertedId, newInsertDocument, options.selfInsertId)
             end
-            newInsertDocument.lastUpdated = os.time()*1000
-            while collections[collection].locked do Wait(0) end
-
             lockCollection(collection)
             database[collection][insertedId] = newInsertDocument
+            database[collection][insertedId].lastUpdated = os.time()*1000
             addToAmendments(collection, insertedId, 'insert')
             unlockCollection(collection)
             return {insertedId}
@@ -385,7 +392,6 @@ exports('delete', function(data, resource)
     if query.id then
         local id = query.id
         if database[collection][id] then
-            while collections[collection].locked do Wait(0) end
             lockCollection(collection)
             DeleteDocument(collection, id)
             unlockCollection(collection)
@@ -403,8 +409,6 @@ exports('delete', function(data, resource)
                 keys[#keys + 1] = k
             end
         end
-        while collections[collection].locked do Wait(0) end
-
         lockCollection(collection)
         deleteDocuments(collection, keys)
         unlockCollection(collection)
@@ -438,12 +442,10 @@ exports('insert', function(data, resource)
     if foundCollection[insertedId] then
         return false
     end
-    while collections[collection].locked do Wait(0) end
-
     lockCollection(collection)
     foundCollection[insertedId] = document
-    addToAmendments(collection, insertedId, 'insert')
     unlockCollection(collection)
+    addToAmendments(collection, insertedId, 'insert')
     return insertedId
 end)
 
@@ -454,11 +456,10 @@ exports('insertMany', function(data, resource)
         createCollection(collection)
     end
     local responseData = {}
-    while collections[collection].locked do Wait(0) end
     lockCollection(collection)
     for i=1, #data.documents do
         local document = data.documents[i]
-        if data.options and data.options.skipIfExists and skipIfExistsHandler(collection, document, data.options) == false then
+        if data.options and data.options.skipIfExists and not skipIfExistsHandler(collection, document, data.options) then
             responseData[#responseData + 1] = false
             goto continue
         end
@@ -478,40 +479,51 @@ exports('insertMany', function(data, resource)
 end)
 
 exports('replaceOne', function(data, resource)
-    if not data or not data.collection or not data.query or not data.document then
-        lib.print.error(string.format("replaceOne call was improperly formatted, returning false. Called from %s. Sent data %s", resource, json.encode(data)))
-        return false
-    end
-    local collection, document = tostring(data.collection), data.document
-    if data.query.id then
-        local id = data.query.id
-        if not database[collection] or not database[collection][id] then return false end
-        while collections[collection].locked do Wait(0) end
-
+    if not utils.paramChecker(data, resource, 'replaceOne') then return false end
+    if not databaseCollectionCheck(data.collection, resource) then return false end
+    local collection, document, foundCollection, query = tostring(data.collection), data.document, database[tostring(data.collection)], data.query
+    if query.id then
+        local id = query.id
+        if not foundCollection or not foundCollection[id] then return false end
+        lockDocument(collection, id)
         document.lastUpdated = os.time()*1000
-        lockCollection(collection)
-        database[collection][id] = document
+        foundCollection[id] = document
+        unlockDocument(collection, id)
         addToAmendments(collection, id, 'update')
-        unlockCollection(collection)
         return id
     else
         local ids = collections[collection].ids
         for i=1, #ids do
             local k = ids[i]
-            local v = database[collection][k]
-            local match = utils.queryMatch(v, data.query)
+            local v = foundCollection[k]
+            local match = utils.queryMatch(v, query)
             if match then
-                while collections[collection].locked do Wait(0) end
+                lockDocument(collection, k)
                 document.lastUpdated = os.time()*1000
-                lockCollection(collection)
-                database[collection][k] = document
+                foundCollection[k] = document
+                unlockDocument(collection, k)
                 addToAmendments(collection, k, 'update')
-                unlockCollection(collection)
                 return k
             end
         end
         return false
     end
+end)
+
+exports('aggregate', function(data, resource)
+    if not utils.paramChecker(data, resource, 'aggregate') then return false end
+    if not databaseCollectionCheck(data.collection, resource) then return {} end
+    local foundCollection, collection, query, responseData, keys, group = database[data.collection], tostring(data.collection), data.query, {}, {}, data.group
+    if query then
+        responseData, keys = queryHandlers.find(collections[collection], foundCollection, query)
+    else
+        responseData, keys = foundCollection, collections[collection].ids
+    end
+
+    if group then
+        responseData = utils.groupHandler(responseData, group, keys)
+    end
+    return responseData
 end)
 
 exports('getAmendmentsCount', function()
@@ -605,14 +617,52 @@ lib.callback.register('chiliaddb:server:getCollectionData', function(source, col
     return database[collection]
 end)
 
-RegisterNetEvent('chiliaddb:server:onChangeData', function(data)
-    if not utils.dbAccessCheck(source) then return end
-    if data.action == 'remove' then
-        DeleteDocument(data.collection, data.id)
-    elseif data.action == 'replace' then
-        database[data.collection][data.id] = data.data
-        addToAmendments(data.collection, data.id, 'update')
+lib.callback.register('chiliaddb:server:createNewIndex', function(source, collection)
+    if not utils.dbAccessCheck(source) then return {} end
+    local insertedId = incrementIndex(collection)
+    local foundCollection = database[collection]
+    if foundCollection[insertedId] then
+        return false
     end
+
+    lockCollection(collection)
+    local document = {}
+    document.lastUpdated = os.time()*1000
+    foundCollection[insertedId] = document
+    addToAmendments(collection, insertedId, 'insert')
+    unlockCollection(collection)
+    return {id = insertedId, document = document}
+end)
+
+lib.callback.register('chiliaddb:server:createNewDocument', function(source, collection, id, document)
+    if not utils.dbAccessCheck(source) then return {} end
+    local foundCollection = database[collection]
+
+    lockCollection(collection)
+    document.lastUpdated = os.time()*1000
+    foundCollection[id] = document
+    addToAmendments(collection, id, 'insert')
+    unlockCollection(collection)
+    return true
+end)
+
+
+lib.callback.register('chiliaddb:server:deleteDocument', function(source, collection, id)
+    if not utils.dbAccessCheck(source) or not database[collection][id] then return false end
+
+    DeleteDocument(collection, id)
+    return true
+end)
+
+lib.callback.register('chiliaddb:server:updateDocument', function(source, collection, id, data)
+    if not utils.dbAccessCheck(source) or not database[collection][id] then return false end
+
+    lockDocument(collection, id)
+    data.lastUpdated = os.time()*1000
+    database[collection][id] = data
+    unlockDocument(collection, id)
+    addToAmendments(collection, id, 'update')
+    return true
 end)
 
 AddEventHandler('onResourceStart', function(resource)

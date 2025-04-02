@@ -146,6 +146,7 @@ function utils.paramChecker(data, resource, export)
         replaceOne = {'collection', 'query', 'document'},
         renameCollection = {'collection', 'newName'},
         dropCollection = {'collection'},
+        aggregate = {'collection', 'group'},
     }
 
     for _, param in ipairs(functionParams[export]) do
@@ -156,6 +157,41 @@ function utils.paramChecker(data, resource, export)
     end
 
     return true
+end
+
+function utils.groupHandler(responseData, group, keys)
+    if group.fields and group.sum then
+        local aggregatedData = {}
+        local sumAlias = group.alias or group.sum
+        for i = 1, #keys do
+            local key = keys[i]
+            local document = responseData[key]
+            local groupIds = {}
+            for i=1, #group.fields do
+                local field = group.fields[i]
+                groupIds[#groupIds + 1] = document[field]
+            end
+            local idString = table.concat(groupIds, "_")
+            if idString then
+                if not aggregatedData[idString] then
+                    aggregatedData[idString] = {
+                        ids = {},
+                        [sumAlias] = 0
+                    }
+                    for _, field in ipairs(group.fields) do
+                        aggregatedData[idString][field] = document[field]
+                    end
+                end
+                aggregatedData[idString][sumAlias] = (aggregatedData[idString][sumAlias] or 0) + (document[group.sum] or 0)
+                aggregatedData[idString].ids[#aggregatedData[idString].ids + 1] = key
+            end
+        end
+        responseData = {}
+        for _, value in pairs(aggregatedData) do
+            responseData[#responseData + 1] = value
+        end
+    end
+    return responseData
 end
 
 return utils
