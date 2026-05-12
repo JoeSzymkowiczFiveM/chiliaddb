@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.2.0] - 2026-05-11
+
+### Added
+
+- `HOOKS.md` — detailed documentation for collection change hooks, including callback signatures, when each hook fires, registration examples via `ChiliadDB.on` and `AddEventHandler`, and a pattern reference.
+- `exportCollection` export and `/cdb_exportcollection {collection}` command — exports a single named collection to `{collection}.json` in the resource folder, without touching the rest of the database.
+- `importCollection` export and `/cdb_importcollection {collection} {filename}` command — imports a single collection from a JSON file, dropping and replacing any existing collection of the same name.
+- `updateOne` export — updates only the first document matching a query and returns its numeric id, or `false` if no match was found.
+- `deleteOne` export — deletes only the first document matching a query and returns its numeric id, or `false` if no match was found.
+- `replaceOne` export — replaces the entire body of the first matching document with a new document table.
+- `count` export — returns the number of documents in a collection matching an optional query; returns the total collection size when no query is provided.
+- `collectionExists` export — returns `true` or `false` without side effects, safe to call before any other operation on an untested collection.
+- `setCollectionRetention` export — sets or removes a TTL retention policy on a collection; documents older than the policy are pruned on next startup.
+- `getCollectionProperties` export — returns the internal metadata for a collection (current index, ids list, retention, etc.).
+- `sort` option on `find` — results can now be sorted server-side by any document field in `asc` or `desc` order before `limit` and other options are applied.
+- `excludeIndexes`, `excludeFields`, and `includeFields` options on `find` and `findOne` — allow the caller to shape the response without fetching and filtering client-side.
+
+### Changed
+
+- `insert` export renamed to `insertOne` and `insertMany` export renamed to `insert`, aligning the naming scheme with the rest of the API (`updateOne`, `deleteOne`, etc.).
+- Performance optimizations
+
 ## [0.1.1] - 2025-03-24
 
 This release focused on getting the UI editor to be compatible with the database, and start working on the `aggregate` function.
@@ -27,8 +49,8 @@ Due to the changes in indexing, you will need to `/cdb_drop` to clear out the da
 
 ### Added
 
-- insertMany export to create one or many documents in a single call, within a single collection.
-- renameCollection export that changes the name of a specified collection. Also added as a command.
+- `insertMany` export to create one or many documents in a single call, within a single collection.
+- `renameCollection` export that changes the name of a specified collection. Also added as a command.
 - backupDatabase export allows other scripts to trigger a database backup.
 - Argument validation on each of the functional exports. Will inform the user if they are not providing the required keys/data to the function.
 

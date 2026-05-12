@@ -1,5 +1,19 @@
 local utils = {}
 
+local comparisonOps = {
+    ['$gt'] = function(a, b) return type(a) == 'number' and type(b) == 'number' and a > b end,
+    ['$gte'] = function(a, b) return type(a) == 'number' and type(b) == 'number' and a >= b end,
+    ['$lt'] = function(a, b) return type(a) == 'number' and type(b) == 'number' and a < b end,
+    ['$lte'] = function(a, b) return type(a) == 'number' and type(b) == 'number' and a <= b end,
+    ['$ne'] = function(a, b) return a ~= b end,
+    ['$eq'] = function(a, b) return a == b end,
+    ['$exists'] = function(a, b) return (b and a ~= nil) or (not b and a == nil) end,
+    ['$in'] = function(a, b) return type(b) == 'table' and lib.table.contains(b, a) end,
+    ['$nin'] = function(a, b) return type(b) == 'table' and not lib.table.contains(b, a) end,
+    ['$match'] = function(a, b) return string.match(a, b) end,
+    ['$contains'] = function(a, b) return type(a) == 'table' and lib.table.contains(a, b) end,
+}
+
 function utils.advancedSearchLogic(v, k2, k3, v3)
     if k3 == '$or' or k3 == '$and' then
         local match = (k3 == '$or') and false or true
@@ -11,19 +25,6 @@ function utils.advancedSearchLogic(v, k2, k3, v3)
         end
         return match
     else
-        local comparisonOps = {
-            ['$gt'] = function(a, b) return type(a) == 'number' and type(b) == 'number' and a > b end,
-            ['$gte'] = function(a, b) return type(a) == 'number' and type(b) == 'number' and a >= b end,
-            ['$lt'] = function(a, b) return type(a) == 'number' and type(b) == 'number' and a < b end,
-            ['$lte'] = function(a, b) return type(a) == 'number' and type(b) == 'number' and a <= b end,
-            ['$ne'] = function(a, b) return a ~= b end,
-            ['$eq'] = function(a, b) return a == b end,
-            ['$exists'] = function(a, b) return (b and a ~= nil) or (not b and a == nil) end,
-            ['$in'] = function(a, b) return type(b) == 'table' and lib.table.contains(b, a) end,
-            ['$nin'] = function(a, b) return type(b) == 'table' and not lib.table.contains(b, a) end,
-            ['$match'] = function(a, b) return string.match(a, b) end,
-            ['$contains'] = function(a, b) return type(a) == 'table' and lib.table.contains(a, b) end,
-        }
         return comparisonOps[k3] and comparisonOps[k3](v[k2], v3) or false
     end
 end
@@ -120,6 +121,25 @@ function utils.limitResults(responseData, limit, keys)
     return newResponseData
 end
 
+function utils.sortKeys(responseData, keys, sort)
+    local field = sort.field
+    local order = sort.order or 'asc'
+    local sortedKeys = {table.unpack(keys)}
+    table.sort(sortedKeys, function(a, b)
+        local va = responseData[a] and responseData[a][field]
+        local vb = responseData[b] and responseData[b][field]
+        if va == nil and vb == nil then return false end
+        if va == nil then return order == 'desc' end
+        if vb == nil then return order == 'asc' end
+        if order == 'desc' then
+            return va > vb
+        else
+            return va < vb
+        end
+    end)
+    return sortedKeys
+end
+
 function utils.calculateMillis(retention)
     local timeUnits = {months = 2592000, days = 86400, hours = 3600, minutes = 60, seconds = 1}
     local millis = 0
@@ -129,25 +149,29 @@ function utils.calculateMillis(retention)
     return millis * 1000
 end
 
+local functionParams = {
+    find = {'collection'},
+    findOne = {'collection'},
+    update = {'collection', 'query', 'update'},
+    updateOne = {'collection', 'query', 'update'},
+    delete = {'collection', 'query'},
+    deleteOne = {'collection', 'query'},
+    exists = {'collection', 'query'},
+    insertOne = {'collection', 'document'},
+    insert = {'collection', 'documents'},
+    replaceOne = {'collection', 'query', 'document'},
+    renameCollection = {'collection', 'newName'},
+    dropCollection = {'collection'},
+    aggregate = {'collection', 'group'},
+    count = {'collection'},
+    importCollection = {'collection'},
+}
+
 function utils.paramChecker(data, resource, export)
     if not data then
         lib.print.error(string.format("Missing data parameter. Called from %s.", resource))
         return false
     end
-
-    local functionParams = {
-        find = {'collection'},
-        findOne = {'collection'},
-        update = {'collection', 'query', 'update'},
-        delete = {'collection', 'query'},
-        exists = {'collection', 'query'},
-        insert = {'collection', 'document'},
-        insertMany = {'collection', 'documents'},
-        replaceOne = {'collection', 'query', 'document'},
-        renameCollection = {'collection', 'newName'},
-        dropCollection = {'collection'},
-        aggregate = {'collection', 'group'},
-    }
 
     for _, param in ipairs(functionParams[export]) do
         if not data[param] then

@@ -23,15 +23,15 @@ If you are interested in the project, come say Hi in Discord.
 
 
 ## ✅ Dependencies
- - [nodejs](https://nodejs.org/en) v18 or higher
+ - [bun](https://bun.com/)
  - [ox_lib](https://github.com/overextended/ox_lib) v3.28.1 or higher
 
 
 ## 👀 Usage
 
-- Install `pnpm` globally; `npm install -g pnpm`
+- Install `bun` globally
 
-- In the `web` directory of this resource, `pnpm install` and `pnpm run build` to build the UI
+- In the `web` directory of this resource, `bun install` and `bun run build` to build the UI
 
 - Add the following line to the fxmanifest of the resource you want to use chiliaddb in:
 ```
@@ -45,7 +45,6 @@ server_script '@chiliaddb/init.lua'
 
 [Advanced Query Operators](OPERATORS.md)
 
-
 ## ⌨️ Commands
  - `/cdb_show` This opens the database explorer UI within the game.
 
@@ -56,6 +55,10 @@ server_script '@chiliaddb/init.lua'
  - `/cdb_export` This exports the whole datastore to a `database.json` file in the resource folder. This lets me look at the data and change it, and load it back in with the `cdb_import` command. This is also good for making backups of the database.
 
   - `/cdb_import` This wipes the existing database and reloads it with the contents of the `database.json` file, from the resource folder. I dont have any validation for this, so be very careful when using this.
+
+ - `/cdb_exportcollection {collection name}` This exports a single named collection to a `{collection}.json` file in the resource folder. Useful for backing up or migrating individual collections without touching the rest of the database.
+
+  - `/cdb_importcollection {collection name} {filename}` This imports a single collection from the specified JSON file (e.g. `players.json`) into the database. If a collection with that name already exists it will be dropped and replaced with the file contents.
 
  ## #️⃣ Convars
 
@@ -76,8 +79,8 @@ set chiliaddb:syncInterval 5
 ## 💢 To Do
 
 - The UI has very basic delete and updata capability, which has not been fully tested or validated. It has a lot of capability that could allow you to break your data. Beware.
-- More functions and options in the wrapper itself.
-- Optimizations and more validation.
+- ~~More functions and options in the wrapper itself.~~ More  added in v0.2.0, but will always consider more.
+- ~~Optimizations and more validation~~. Many performance changes implemented in in v0.2.0.
 
 
 ## 👀 Tips

@@ -33,4 +33,11 @@ ChiliadDB.ready = setmetatable({
     end,
 })
 
+-- ChiliadDB.on registers a hook for collection change events.
+-- Other resources can also listen directly via AddEventHandler:
+--   AddEventHandler('chiliaddb:hook:<collection>:<event>', function(id, data) ... end)
+ChiliadDB.on = function(collection, event, callback)
+    AddEventHandler(string.format('chiliaddb:hook:%s:%s', collection, event), callback)
+end
+
 _ENV.ChiliadDB = ChiliadDB

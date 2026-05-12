@@ -10,32 +10,32 @@ ChiliadDB.ready(function()
 end)
 ```
 
-## ✏️ ChiliadDB.insert
-`insert` is how you create a new document in the datastore. At the moment, the driver can create a single document each call, and will return
-a numeric id for the inserted document, or false if insert encountered errors or skipped
+## ✏️ ChiliadDB.insertOne
+`insertOne` is how you create a new document in the datastore. At the moment, the driver can create a single document each call, and will return
+a numeric id for the inserted document, or false if insertOne encountered errors or skipped
 ```lua
-local resultInsert = ChiliadDB.insert({collection = 'test', document = {permission = 'god', name = 'Joe', citizenid = 1}})
-print(resultInsert) -- resultInsert is a numeric id for the inserted document, or false if insert encountered errors
+local resultInsert = ChiliadDB.insertOne({collection = 'test', document = {permission = 'god', name = 'Joe', citizenid = 1}})
+print(resultInsert) -- resultInsert is a numeric id for the inserted document, or false if insertOne encountered errors
 ```
 
-## ✏️ ChiliadDB.insertMany
-`insertMany` is how you create one or many documents in the datastore. At the moment, the driver can create a single document each call, and will return
-a numeric id for the inserted document, or false if insert encountered errors or skipped
+## ✏️ ChiliadDB.insert
+`insert` is how you create one or many documents in the datastore. It returns
+an array of ids for the inserted documents, in the order they were provided
 ```lua
-local resultInsert = ChiliadDB.insertMany({collection = 'test', documents = {
+local resultInsert = ChiliadDB.insert({collection = 'test', documents = {
     {permission = 'god', name = 'Joe', citizenid = 1},
     {permission = 'admin', name = 'David', citizenid = 2},
 }})
 print(resultInsert) -- resultInsert is an array of ids that were inserted, given the order of the documents
 ```
 
-### `.insert` and `.insertMany` options
-You can pass `options` parameters, to the `insert` function to further modify how documents are created.
+### `.insertOne` and `.insert` options
+You can pass `options` parameters, to the `insertOne` or `insert` functions to further modify how documents are created.
 
 #### selfInsertId
 This allows you to specify one or many field names, that will be populated with the index that the record will be stored with. For example, you can specify 'charId', and the 'charId' field will be added to the stored record with the set index of that record. This can be a single string or a table of strings.
 ```lua
-local resultInsertId = ChiliadDB.insert({collection = 'test', document = {permission = 'admin', name = 'Joseph', citizenid = 1}, options = {selfInsertId = 'charId'}})
+local resultInsertId = ChiliadDB.insertOne({collection = 'test', document = {permission = 'admin', name = 'Joseph', citizenid = 1}, options = {selfInsertId = 'charId'}})
 local resultFindOneId = ChiliadDB.findOne({collection = 'test', query = { id = resultInsertId } })
 print(resultFindOneId) -- resultFindOneId will include a field charId with the numeric inserted id
 ```
@@ -43,8 +43,8 @@ print(resultFindOneId) -- resultFindOneId will include a field charId with the n
 #### skipIfExists
 This will abort insert if an existing record in the collection matches specific field values.
 ```lua
-local resultInsertSkip = ChiliadDB.insert({collection = 'test', document = {permission = 'admin', name = 'Joseph', citizenid = 1}, options = {skipIfExists = {citizenid = true}}})
-print(resultInsertSkip) -- resultInsertSkip will be false as the insert example above already created a record with that `citizenid`, and no new document was created
+local resultInsertSkip = ChiliadDB.insertOne({collection = 'test', document = {permission = 'admin', name = 'Joseph', citizenid = 1}, options = {skipIfExists = {citizenid = true}}})
+print(resultInsertSkip) -- resultInsertSkip will be false as the insertOne example above already created a record with that `citizenid`, and no new document was created
 ```
 
 
@@ -53,6 +53,14 @@ print(resultInsertSkip) -- resultInsertSkip will be false as the insert example 
 ```lua
 local resultUpdate = ChiliadDB.update({collection = 'test', query = {age = {['$lt'] = 11}}, update = { name = 'Joseph' }})
 print(json.encode(resultUpdate, {indent=true}))
+```
+
+
+## ✏️ ChiliadDB.updateOne
+`updateOne` is similar to `update` but modifies only the **first** matching document and returns its numeric id, or `false` if no match was found. Useful when you know there is at most one record and want to avoid accidental bulk updates.
+```lua
+local updatedId = ChiliadDB.updateOne({collection = 'players', query = {steamid = 'steam:abc123'}, update = {cash = 5000}})
+print(updatedId) -- the numeric id of the updated document, or false
 ```
 
 
@@ -69,11 +77,26 @@ print(json.encode(resultReplaceOne, {indent=true}))
 ```lua
 local resultFind = ChiliadDB.find({collection = 'test', query = { permission = 'god' } })
 print(json.encode(resultFind, {indent=true})) -- resultFind is an empty table or an array of tables
-You can also use the `id` parameter in the `query` to specific a specific index from the specified collection that you want. `id` must be numeric.
 ```
+You can also use the `id` parameter in the `query` to specify a specific index from the specified collection that you want. `id` must be numeric.
 
 ### `.find` options
 You can pass `options` parameters, to further help the search and response of the `find` function.
+
+#### sort
+This will sort the results by the specified field before any other options (such as `limit`) are applied. Provide a table with `field` (the document field to sort by) and `order` (`'asc'` for ascending, `'desc'` for descending, defaults to `'asc'`). Pair with `excludeIndexes` to receive a sequentially ordered array.
+```lua
+-- Get the top 10 players by score, returned as an ordered array
+local topPlayers = ChiliadDB.find({
+    collection = 'leaderboard',
+    options = {
+        sort = { field = 'score', order = 'desc' },
+        limit = 10,
+        excludeIndexes = true
+    }
+})
+print(json.encode(topPlayers, {indent=true}))
+```
 
 #### limit
 This will limit the response records to the number specified in the `limit` value
@@ -91,8 +114,8 @@ This will limit the fields in each response object(s) to the specified fields.
 ## 🔎 ChiliadDB.findOne
 `findOne` is similar to `find` but returns the first match in the collection given the query criteria, using the numeric index as a sort order, and only return a single table.
 ```lua
-local findOneDocument, findOneKey = ChiliadDB.findOne({collection = 'test', query = { permission = 'god' }, update = {  permission = 'normie' } })
-print(json.encode(resultFindOne, {indent=true})) -- resultFindOne is the resulting document table, or nil if no result found
+local findOneDocument, findOneKey = ChiliadDB.findOne({collection = 'test', query = { permission = 'god' } })
+print(json.encode(findOneDocument, {indent=true})) -- findOneDocument is the resulting document table, or nil if no result found
 print(findOneKey) -- findOneKey is a numeric key, or nil if no result found
 ```
 
@@ -109,15 +132,36 @@ This will limit the fields in each response object(s) to the specified fields.
 ## 🗑️ ChiliadDB.delete
 `delete` is how you would remove one or more existing documents in the datastore, given the selection query. To guarentee removal of a single document, use the `id` key in the query criteria.
 ```lua
-ChiliadDB.delete({collection = 'test'}, query = { permission = 'god' })
+ChiliadDB.delete({collection = 'test', query = { permission = 'god' }})
+```
+
+
+## 🗑️ ChiliadDB.deleteOne
+`deleteOne` removes only the **first** matching document and returns its numeric id, or `false` if no match was found. Safer than `delete` when you only intend to remove a single record.
+```lua
+local deletedId = ChiliadDB.deleteOne({collection = 'logs', query = {type = 'temp'}})
+print(deletedId) -- the numeric id of the deleted document, or false
 ```
 
 
 ## ❓ ChiliadDB.exists
 `exists` is used to determine if any records in the collection match the provided criteria. This returns `true` if a match is found, `false` if no match is found.
 ```lua
-local resultExists = ChiliadDB.exists({collection = 'test'}, query = { permission = 'pleb' })
-print(result) -- resultExists is return if a record in the specified collection matches the included criteria; false if not
+local resultExists = ChiliadDB.exists({collection = 'test', query = { permission = 'pleb' }})
+print(resultExists) -- resultExists is true if a record in the specified collection matches the included criteria; false if not
+```
+
+
+## 🔢 ChiliadDB.count
+`count` returns the number of documents in a collection that match an optional query. If no `query` is provided, the total document count for the collection is returned. Returns `0` if the collection does not exist.
+```lua
+-- Count all documents in a collection
+local total = ChiliadDB.count({collection = 'players'})
+print(total)
+
+-- Count documents matching a query
+local policePlayers = ChiliadDB.count({collection = 'players', query = {job = 'police'}})
+print(policePlayers)
 ```
 
 
@@ -157,6 +201,17 @@ local resultExists = ChiliadDB.dropCollection('testCollection')
 ```
 
 
+## ❓ ChiliadDB.collectionExists
+`collectionExists` checks whether a named collection exists in the database without needing to catch errors from other exports. Returns `true` if the collection exists, `false` otherwise.
+```lua
+if ChiliadDB.collectionExists('players') then
+    print('players collection is available')
+else
+    print('players collection does not exist')
+end
+```
+
+
 ## ⚙️ ChiliadDB.getCollectionProperties
 `getCollectionProperties` will retrieve the proprties of the requested collection name, like the `currentIndex`, etc. If the collection doesn't exist, this will return false.
 ```lua
@@ -164,14 +219,15 @@ local resultExists = ChiliadDB.getCollectionProperties('testCollection')
 ```
 
 
-## ⚙️ ChiliadDB.setCollectionProperties
-`setCollectionProperties` will retrieve the proprties of the requested collection name, like the `retention`, etc. If the collection doesn't exist, this will create the collection.
+## ⚙️ ChiliadDB.setCollectionRetention
+`setCollectionRetention` sets or removes the retention policy on a collection. Documents whose `lastUpdated` timestamp is older than the retention period will be pruned when the datastore next starts. If the collection does not exist it will be created automatically.
 ```lua
-local resultExists = ChiliadDB.setCollectionProperties({collection = 'testCollection', retention = {seconds = 5, minutes = 1}})
+-- Set a retention period of 1 minute and 5 seconds
+ChiliadDB.setCollectionRetention({collection = 'tempTokens', retention = {minutes = 1, seconds = 5}})
+
+-- Remove the retention policy from a collection
+ChiliadDB.setCollectionRetention({collection = 'tempTokens', remove = true})
 ```
 
-### `.setCollectionProperties` settings
-You can modify a number of parameters on collections that change behaviors of documents in that collection.
-
-#### retention
-This sets the amount of time documents, unmodified, in this collection will be retained within the collection. This can be set using `seconds`, `minutes`, `hours`, `days`, `months`. Upon startup of the datastore, if the `lastUpdated` values on the document exceeds the `retention` amount, it will be not be loaded into the datastore and deleted from the KVP.
+### `retention` time units
+You can combine any of the following time unit keys: `seconds`, `minutes`, `hours`, `days`, `months`. Upon startup of the datastore, any document whose `lastUpdated` value is older than the computed retention period will be discarded and removed from KVP.

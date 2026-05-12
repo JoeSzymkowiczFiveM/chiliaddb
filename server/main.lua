@@ -9,7 +9,11 @@ local optionsHandlers = require 'server.optionsHandlers'
 local queryHandlers = require 'server.queryHandlers'
 local utils = require 'server.utils'
 
-local collections, database, documentLocks, collectionLocks, amendments, dbLoaded = {}, {}, {}, {}, {}, false
+local collections, database, documentLocks, collectionLocks, amendmentsList, amendmentsMap, dbLoaded = {}, {}, {}, {}, {}, {}, false
+
+local function fireHook(collection, event, ...)
+    TriggerEvent(string.format('chiliaddb:hook:%s:%s', collection, event), ...)
+end
 
 local function databaseCollectionCheck(collection, resource)
     if database[collection] then return true end
@@ -18,7 +22,8 @@ local function databaseCollectionCheck(collection, resource)
 end
 
 function DropDatabase()
-    amendments = {}
+    amendmentsList = {}
+    amendmentsMap = {}
     for k in pairs(database) do
         local ids = collections[k].ids
         for i=1, #ids do
@@ -38,13 +43,16 @@ function DropCollection(collection)
         lib.print.error(string.format("dropCollection failed. Collection %s does not exist", collection))
         return false
     end
-    local newAmendments = {}
-    for i = 1, #amendments do
-        if amendments[i].collection ~= collection then
-            newAmendments[#newAmendments + 1] = amendments[i]
+    local newList = {}
+    for i = 1, #amendmentsList do
+        local entry = amendmentsList[i]
+        if entry.collection ~= collection then
+            newList[#newList + 1] = entry
+        else
+            amendmentsMap[collection .. ':' .. entry.id] = nil
         end
     end
-    amendments = newAmendments
+    amendmentsList = newList
     for i=1, #collections[collection].ids do
         DeleteResourceKvpNoSync(string.format("%s:%d", collection, collections[collection].ids[i]))
     end
@@ -115,6 +123,57 @@ function RestoreDatabase()
     end)
 end
 
+function ExportCollection(collection)
+    collection = tostring(collection)
+    if not database[collection] then
+        lib.print.error(string.format("exportCollection failed. Collection %s does not exist", collection))
+        return false
+    end
+    CreateThread(function()
+        lockCollection(collection)
+        local payload = json.encode({
+            collection = collections[collection],
+            documents  = database[collection],
+        })
+        unlockCollection(collection)
+        local filename = string.format("%s.json", collection)
+        SaveResourceFile(cache.resource, filename, payload, -1)
+        lib.print.info(string.format("Collection '%s' exported to %s", collection, filename))
+    end)
+    return true
+end
+
+function ImportCollection(collection, filename)
+    collection = tostring(collection)
+    filename   = tostring(filename)
+    CreateThread(function()
+        local raw = LoadResourceFile(cache.resource, filename)
+        if not raw then
+            lib.print.error(string.format("importCollection failed. File '%s' not found", filename))
+            return
+        end
+        local data = json.decode(raw)
+        if not data or not data.collection or not data.documents then
+            lib.print.error(string.format("importCollection failed. File '%s' has an invalid format", filename))
+            return
+        end
+        if database[collection] then
+            DropCollection(collection)
+        end
+        collections[collection] = data.collection
+        database[collection]    = data.documents
+        SetResourceKvpNoSync("collections", json.encode(collections))
+        for k, v in pairs(data.documents) do
+            if v ~= nil then
+                SetResourceKvpNoSync(string.format("%s:%d", collection, k), json.encode(v))
+            end
+        end
+        FlushResourceKvp()
+        lib.print.info(string.format("Collection '%s' imported from '%s' (%d documents)", collection, filename, #collections[collection].ids))
+    end)
+    return true
+end
+
 local function createCollection(collection)
     collections[collection] = {
         currentIndex = 0,
@@ -133,23 +192,32 @@ local function deleteFromKvp(collection, id)
     DeleteResourceKvpNoSync(string.format("%s:%d", collection, id))
 end
 
-function SyncDataToKvp()
-    local start, amendmentsCount = os.nanotime(), #amendments
+local function doSyncToKvp()
+    -- Snapshot and immediately reset so new writes accumulate in fresh structures
+    -- while this batch is being written, without blocking the main thread.
+    local batch = amendmentsList
+    local batchCount = #batch
+    amendmentsList = {}
+    amendmentsMap = {}
+    local start = os.nanotime()
     SetResourceKvpNoSync("collections", json.encode(collections))
-    if amendmentsCount > 0 then
+    if batchCount > 0 then
         lib.print.debug("Syncing database to KVP")
-        for i = 1, #amendments do
-            local amendment = amendments[i]
+        for i = 1, batchCount do
+            local amendment = batch[i]
             if amendment.action == 'insert' or amendment.action == 'update' then
                 insertUpdateIntoKvp(amendment.collection, amendment.id)
             elseif amendment.action == 'delete' then
                 deleteFromKvp(amendment.collection, amendment.id)
             end
         end
-        amendments = {}
-        lib.print.debug(string.format("Sync to KVP complete. %s amendments made. Elapsed: %.4f ms", amendmentsCount, (os.nanotime() - start) / 1e6))
+        lib.print.debug(string.format("Sync to KVP complete. %s amendments made. Elapsed: %.4f ms", batchCount, (os.nanotime() - start) / 1e6))
     end
     FlushResourceKvp()
+end
+
+function SyncDataToKvp()
+    CreateThread(doSyncToKvp)
 end
 
 local function propagateDatabaseFromKvp()
@@ -167,15 +235,16 @@ local function propagateDatabaseFromKvp()
                 if key then
                     local index = tonumber(key:sub(colonPos))
                     if index then
-                        local data = json.decode(GetResourceKvpString(key))
                         if collectionProps.retention then
-                            if data.lastUpdated + collectionProps.retention >= nowTime then
-                                responseDatabase[collectionName][index] = data
+                            local raw = GetResourceKvpString(key)
+                            local lastUpdated = tonumber(raw:match('"lastUpdated"%s*:%s*(%d+)'))
+                            if lastUpdated and lastUpdated + collectionProps.retention >= nowTime then
+                                responseDatabase[collectionName][index] = json.decode(raw)
                             else
                                 DeleteResourceKvpNoSync(key)
                             end
                         else
-                            responseDatabase[collectionName][index] = data
+                            responseDatabase[collectionName][index] = json.decode(GetResourceKvpString(key))
                         end
                     end
                 end
@@ -195,31 +264,31 @@ local function incrementIndex(collection)
 end
 
 local function addToAmendments(collName, id, action)
-    for i = 1, #amendments do
+    local key = collName .. ':' .. id
+    local existing = amendmentsMap[key]
+    if existing then
         if action == 'insert' or action == 'update' then
-            if amendments[i].collection == collName and amendments[i].id == id then
-                -- lib.print.debug(string.format("Amendment already exists: %s %d %s", collName, id, action))
-                return
-            end
+            return
         end
         if action == 'delete' then
-            if amendments[i].collection == collName and amendments[i].id == id and amendments[i].action == action then
-                return
-            end
+            existing.action = 'delete'
+            return
         end
     end
-    -- lib.print.debug(string.format("Adding amendment: %s %d %s", collName, id, action))
-    amendments[#amendments + 1] = {collection = collName, id = id, action = action}
+    local entry = {collection = collName, id = id, action = action}
+    amendmentsMap[key] = entry
+    amendmentsList[#amendmentsList + 1] = entry
 end
 
 local function removeIdFromCollections(collection, id)
-    local newIds = {}
-    for i = 1, #collections[collection].ids do
-        if collections[collection].ids[i] ~= id then
-            newIds[#newIds + 1] = collections[collection].ids[i]
+    local ids = collections[collection].ids
+    for i = 1, #ids do
+        if ids[i] == id then
+            ids[i] = ids[#ids]
+            ids[#ids] = nil
+            return
         end
     end
-    collections[collection].ids = newIds
 end
 
 function DeleteDocument(collection, id)
@@ -338,12 +407,14 @@ exports('update', function(data, resource)
         document.lastUpdated = os.time()*1000
         unlockDocument(collection, id)
         addToAmendments(collection, id, 'update')
+        fireHook(collection, 'update', id, database[collection][id])
         return {id}
     else
         local responseData = {}
         if database[collection] then 
             local foundCollection = database[collection]
             local ids = collections[collection].ids
+            local now = os.time() * 1000
             for i=1, #ids do
                 local k = ids[i]
                 local v = foundCollection[k]
@@ -353,11 +424,18 @@ exports('update', function(data, resource)
                     for k2, v2 in pairs(data.update) do
                         document[k2] = v2
                     end
-                    document.lastUpdated = os.time()*1000
+                    document.lastUpdated = now
                     unlockDocument(collection, k)
                     addToAmendments(collection, k, 'update')
                     responseData[#responseData + 1] = k
                 end
+            end
+            if #responseData > 0 then
+                local updatedDocs = {}
+                for i=1, #responseData do
+                    updatedDocs[i] = database[collection][responseData[i]]
+                end
+                fireHook(collection, 'update', responseData, updatedDocs)
             end
         end
         if #responseData == 0 and data.options and data.options.upsert then
@@ -378,9 +456,50 @@ exports('update', function(data, resource)
             database[collection][insertedId].lastUpdated = os.time()*1000
             addToAmendments(collection, insertedId, 'insert')
             unlockCollection(collection)
+            fireHook(collection, 'insert', insertedId, database[collection][insertedId])
             return {insertedId}
         end
         return responseData
+    end
+end)
+
+exports('updateOne', function(data, resource)
+    if not utils.paramChecker(data, resource, 'updateOne') then return false end
+    local collection, query = tostring(data.collection), data.query
+    if query.id then
+        local id = query.id
+        if not database[collection] or not database[collection][id] then return false end
+        lockDocument(collection, id)
+        local document = database[collection][id]
+        for k, v in pairs(data.update) do
+            document[k] = v
+        end
+        document.lastUpdated = os.time()*1000
+        unlockDocument(collection, id)
+        addToAmendments(collection, id, 'update')
+        fireHook(collection, 'update', id, database[collection][id])
+        return id
+    else
+        if not databaseCollectionCheck(collection, resource) then return false end
+        local foundCollection = database[collection]
+        local ids = collections[collection].ids
+        for i=1, #ids do
+            local k = ids[i]
+            local v = foundCollection[k]
+            if utils.queryMatch(v, query) then
+                lockDocument(collection, k)
+                local document = database[collection][k]
+                for k2, v2 in pairs(data.update) do
+                    document[k2] = v2
+                end
+                document.lastUpdated = os.time()*1000
+                unlockDocument(collection, k)
+                addToAmendments(collection, k, 'update')
+                fireHook(collection, 'update', k, database[collection][k])
+                return k
+            end
+        end
+        return false
     end
 end)
 
@@ -392,27 +511,59 @@ exports('delete', function(data, resource)
     if query.id then
         local id = query.id
         if database[collection][id] then
+            local deletedDoc = database[collection][id]
             lockCollection(collection)
             DeleteDocument(collection, id)
             unlockCollection(collection)
+            fireHook(collection, 'delete', {id}, {deletedDoc})
             return {id}
         end
         return false
     else
-        local keys = {}
-        local foundCollection = database[collection]
-        local ids = collections[collection].ids
-        for i=1, #ids do
-            local k = ids[i]
-            local v = foundCollection[k]
-            if utils.queryMatch(v, query) then
-                keys[#keys + 1] = k
-            end
+        local keys = queryHandlers.delete(collections[collection], database[collection], query)
+        local deletedDocs = {}
+        for i=1, #keys do
+            deletedDocs[i] = database[collection][keys[i]]
         end
         lockCollection(collection)
         deleteDocuments(collection, keys)
         unlockCollection(collection)
+        fireHook(collection, 'delete', keys, deletedDocs)
         return keys
+    end
+end)
+
+exports('deleteOne', function(data, resource)
+    if not utils.paramChecker(data, resource, 'deleteOne') then return false end
+    local collection = tostring(data.collection)
+    if not databaseCollectionCheck(collection, resource) then return false end
+    local query = data.query
+    if query.id then
+        local id = query.id
+        if database[collection][id] then
+            local deletedDoc = database[collection][id]
+            lockCollection(collection)
+            DeleteDocument(collection, id)
+            unlockCollection(collection)
+            fireHook(collection, 'delete', id, deletedDoc)
+            return id
+        end
+        return false
+    else
+        local ids = collections[collection].ids
+        for i=1, #ids do
+            local k = ids[i]
+            local v = database[collection][k]
+            if utils.queryMatch(v, query) then
+                local deletedDoc = database[collection][k]
+                lockCollection(collection)
+                DeleteDocument(collection, k)
+                unlockCollection(collection)
+                fireHook(collection, 'delete', k, deletedDoc)
+                return k
+            end
+        end
+        return false
     end
 end)
 
@@ -428,8 +579,8 @@ exports('exists', function(data, resource)
     end
 end)
 
-exports('insert', function(data, resource)
-    if not utils.paramChecker(data, resource, 'insert') then return false end
+exports('insertOne', function(data, resource)
+    if not utils.paramChecker(data, resource, 'insertOne') then return false end
     --skipIfExists only works for non-table values
     if data.options and data.options.skipIfExists and skipIfExistsHandler(data.collection, data.document, data.options) == false then return false end
     local collection, document = tostring(data.collection), data.document
@@ -446,17 +597,19 @@ exports('insert', function(data, resource)
     foundCollection[insertedId] = document
     unlockCollection(collection)
     addToAmendments(collection, insertedId, 'insert')
+    fireHook(collection, 'insert', insertedId, document)
     return insertedId
 end)
 
-exports('insertMany', function(data, resource)
-    if not utils.paramChecker(data, resource, 'insertMany') then return false end
+exports('insert', function(data, resource)
+    if not utils.paramChecker(data, resource, 'insert') then return false end
     local collection = tostring(data.collection)
     if not databaseCollectionCheck(collection, resource) then
         createCollection(collection)
     end
     local responseData = {}
     lockCollection(collection)
+    local now = os.time() * 1000
     for i=1, #data.documents do
         local document = data.documents[i]
         if data.options and data.options.skipIfExists and not skipIfExistsHandler(collection, document, data.options) then
@@ -468,13 +621,23 @@ exports('insertMany', function(data, resource)
             document = optionsHandlers.insert(insertedId, document, data.options)
         end
         -- document = data.options and optionsHandlers.insert(insertedId, document, data.options) or document
-        document.lastUpdated = os.time()*1000
+        document.lastUpdated = now
         database[collection][insertedId] = document
         addToAmendments(collection, insertedId, 'insert')
         responseData[#responseData + 1] = insertedId
         ::continue::
     end
     unlockCollection(collection)
+    local insertedIds, insertedDocs = {}, {}
+    for i=1, #responseData do
+        if responseData[i] then
+            insertedIds[#insertedIds + 1] = responseData[i]
+            insertedDocs[#insertedDocs + 1] = database[collection][responseData[i]]
+        end
+    end
+    if #insertedIds > 0 then
+        fireHook(collection, 'insert', insertedIds, insertedDocs)
+    end
     return responseData
 end)
 
@@ -490,6 +653,7 @@ exports('replaceOne', function(data, resource)
         foundCollection[id] = document
         unlockDocument(collection, id)
         addToAmendments(collection, id, 'update')
+        fireHook(collection, 'update', id, document)
         return id
     else
         local ids = collections[collection].ids
@@ -503,6 +667,7 @@ exports('replaceOne', function(data, resource)
                 foundCollection[k] = document
                 unlockDocument(collection, k)
                 addToAmendments(collection, k, 'update')
+                fireHook(collection, 'update', k, document)
                 return k
             end
         end
@@ -527,7 +692,7 @@ exports('aggregate', function(data, resource)
 end)
 
 exports('getAmendmentsCount', function()
-    return #amendments
+    return #amendmentsList
 end)
 
 exports('loaded', function()
@@ -548,6 +713,26 @@ exports('getCollectionDocumentCount', function(collection, resource)
     return #collections[collection].ids
 end)
 
+exports('count', function(data, resource)
+    if not utils.paramChecker(data, resource, 'count') then return false end
+    local collection = tostring(data.collection)
+    if not databaseCollectionCheck(collection, resource) then return 0 end
+    local query = data.query
+    if not query then
+        return #collections[collection].ids
+    end
+    local foundCollection = database[collection]
+    local ids = collections[collection].ids
+    local count = 0
+    for i=1, #ids do
+        local k = ids[i]
+        if utils.queryMatch(foundCollection[k], query) then
+            count = count + 1
+        end
+    end
+    return count
+end)
+
 exports('createCollection', function(collection, resource)
     collection = tostring(collection)
     if not collection then
@@ -560,6 +745,15 @@ exports('createCollection', function(collection, resource)
     end
     createCollection(collection)
     return true
+end)
+
+exports('collectionExists', function(collection, resource)
+    if not collection then
+        lib.print.error(string.format("collectionExists call was improperly formatted, returning false. Called from %s.", resource))
+        return false
+    end
+    collection = tostring(collection)
+    return collections[collection] ~= nil
 end)
 
 function RenameCollection(collection, newName, resource)
@@ -578,22 +772,24 @@ exports('renameCollection', function(data, resource)
     return RenameCollection(collection, newName, resource)
 end)
 
-exports('setCollectionProperties', function(data, resource)
-    if not data or not data.collection or not data.retention then
-        lib.print.error(string.format("setCollectionProperties call was improperly formatted, returning false. Called from %s. Sent data %s", resource, json.encode(data)))
+exports('setCollectionRetention', function(data, resource)
+    if not data or not data.collection then
+        lib.print.error(string.format("setCollectionRetention call was improperly formatted, returning false. Called from %s. Sent data %s", resource, json.encode(data)))
         return false
     end
-    local retention, collection = data.retention, tostring(data.collection)
-    if retention then
-        if retention.remove then
-            collections[collection].retention = nil
-        else
-            local calculatedMillis = utils.calculateMillis(retention)
-            if not databaseCollectionCheck(collection, resource) then
-                createCollection(collection)
-            end
-            collections[collection].retention = calculatedMillis
+    local collection = tostring(data.collection)
+    if data.remove then
+        if not databaseCollectionCheck(collection, resource) then return false end
+        collections[collection].retention = nil
+    else
+        if not data.retention then
+            lib.print.error(string.format("setCollectionRetention call was improperly formatted, returning false. Called from %s. Sent data %s", resource, json.encode(data)))
+            return false
         end
+        if not databaseCollectionCheck(collection, resource) then
+            createCollection(collection)
+        end
+        collections[collection].retention = utils.calculateMillis(data.retention)
     end
     return true
 end)
@@ -610,6 +806,23 @@ end)
 exports('backupDatabase', function(resource)
     lib.print.info(string.format("BackupDatabase called from %s", resource))
     BackupDatabase()
+end)
+
+exports('exportCollection', function(collection, resource)
+    if not collection then
+        lib.print.error(string.format("exportCollection call was improperly formatted, returning false. Called from %s", resource))
+        return false
+    end
+    return ExportCollection(collection)
+end)
+
+exports('importCollection', function(data, resource)
+    if not utils.paramChecker(data, resource, 'importCollection') then return false end
+    if not data.filename then
+        lib.print.error(string.format("importCollection call is missing 'filename'. Called from %s", resource))
+        return false
+    end
+    return ImportCollection(data.collection, data.filename)
 end)
 
 lib.callback.register('chiliaddb:server:getCollectionData', function(source, collection)
@@ -631,6 +844,7 @@ lib.callback.register('chiliaddb:server:createNewIndex', function(source, collec
     foundCollection[insertedId] = document
     addToAmendments(collection, insertedId, 'insert')
     unlockCollection(collection)
+    fireHook(collection, 'insert', insertedId, document)
     return {id = insertedId, document = document}
 end)
 
@@ -643,14 +857,16 @@ lib.callback.register('chiliaddb:server:createNewDocument', function(source, col
     foundCollection[id] = document
     addToAmendments(collection, id, 'insert')
     unlockCollection(collection)
+    fireHook(collection, 'insert', id, document)
     return true
 end)
 
 
 lib.callback.register('chiliaddb:server:deleteDocument', function(source, collection, id)
     if not utils.dbAccessCheck(source) or not database[collection][id] then return false end
-
+    local deletedDoc = database[collection][id]
     DeleteDocument(collection, id)
+    fireHook(collection, 'delete', id, deletedDoc)
     return true
 end)
 
@@ -662,6 +878,7 @@ lib.callback.register('chiliaddb:server:updateDocument', function(source, collec
     database[collection][id] = data
     unlockDocument(collection, id)
     addToAmendments(collection, id, 'update')
+    fireHook(collection, 'update', id, data)
     return true
 end)
 
@@ -674,7 +891,7 @@ end)
 
 AddEventHandler('onResourceStop', function(resource)
     if cache.resource ~= resource then return end
-    SyncDataToKvp()
+    doSyncToKvp()
 end)
 
 local cronString = string.format('*/%s * * * *', GetConvarInt('chiliaddb:syncInterval', 5))
