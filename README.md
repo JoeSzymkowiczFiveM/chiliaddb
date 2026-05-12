@@ -46,6 +46,8 @@ server_script '@chiliaddb/init.lua'
 
 [Advanced Query Operators](OPERATORS.md)
 
+[Change Hooks](HOOKS.md)
+
 ## ⌨️ Commands
  - `/cdb_show` This opens the database explorer UI within the game.
 
