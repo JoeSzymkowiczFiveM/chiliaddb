@@ -26,13 +26,16 @@ function queryHandlers.findOne(ids, collection, query)
     return nil, nil
 end
 
-function queryHandlers.delete(collection, query)
+function queryHandlers.delete(collectionMeta, data, query)
     local responseData = {}
-        for k, v in pairs(collection) do
-            if utils.queryMatch(v, query) then
-                responseData[#responseData + 1] = k
-            end
+    local ids = collectionMeta.ids
+    for i = 1, #ids do
+        local k = ids[i]
+        local v = data[k]
+        if utils.queryMatch(v, query) then
+            responseData[#responseData + 1] = k
         end
+    end
     return responseData
 end
 

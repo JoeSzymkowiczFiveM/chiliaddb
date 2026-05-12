@@ -2,6 +2,9 @@ local optionsHandlers = {}
 local utils = require 'server.utils'
 
 function optionsHandlers.find(responseData, options, keys)
+    if options.sort then
+        keys = utils.sortKeys(responseData, keys, options.sort)
+    end
     if options.excludeIndexes then
         responseData = utils.excludeIndexes(responseData, keys)
     end

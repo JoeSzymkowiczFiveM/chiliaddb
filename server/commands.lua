@@ -19,6 +19,39 @@ lib.addCommand('cdb_import', {
     RestoreDatabase()
 end)
 
+lib.addCommand('cdb_exportcollection', {
+    help = 'Export a single ChiliadDB collection to a json file',
+    restricted = 'group.chiliaddb',
+    params = {
+        {
+            name = 'collection',
+            type = 'string',
+            help = 'Name of the collection to export',
+        },
+    }
+}, function(source, args, raw)
+    ExportCollection(args.collection)
+end)
+
+lib.addCommand('cdb_importcollection', {
+    help = 'Import a single collection from a json file into ChiliadDB',
+    restricted = 'group.chiliaddb',
+    params = {
+        {
+            name = 'collection',
+            type = 'string',
+            help = 'Name to give the imported collection',
+        },
+        {
+            name = 'filename',
+            type = 'string',
+            help = 'Filename to import (e.g. players.json)',
+        },
+    }
+}, function(source, args, raw)
+    ImportCollection(args.collection, args.filename)
+end)
+
 lib.addCommand('cdb_drop', {
     help = 'Drop the entire ChiliadDB, a collection or a document',
     restricted = 'group.chiliaddb',
