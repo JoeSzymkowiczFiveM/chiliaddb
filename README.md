@@ -17,6 +17,7 @@ If you are interested in the project, come say Hi in Discord.
 - NoSQL-like datastore for FiveM KVP storage system
 - No need for external database services. The database is in FiveM. Establish your collections and data structures as you code
 - Built-in database explorer UI to browse and edit the datastore
+- Hooks system lets any resource react to database changes in real time — no polling required.
 - MongoDB-like syntax
 - Commands for dropping collections, deleting documents, exporting, and importing data
 - Convars for user permissions and print level settings
