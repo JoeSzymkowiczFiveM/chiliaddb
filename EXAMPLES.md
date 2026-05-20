@@ -55,6 +55,32 @@ local resultUpdate = ChiliadDB.update({collection = 'test', query = {age = {['$l
 print(json.encode(resultUpdate, {indent=true}))
 ```
 
+### `.update` options
+You can pass `options` parameters to further modify how documents are updated.
+
+#### upsert
+This will create a new document if no existing records match the query criteria. The new document will contain fields from both the query and the update parameters.
+```lua
+local resultUpdate = ChiliadDB.update({
+    collection = 'players', 
+    query = {steamid = 'steam:abc123'}, 
+    update = {cash = 5000, job = 'police'},
+    options = {upsert = true}
+})
+print(json.encode(resultUpdate, {indent=true})) -- Returns an array containing the id of the updated or inserted document
+```
+
+#### selfInsertId
+When using `upsert`, this option works the same way as with `insert` operations - it populates specified field names with the document's index.
+```lua
+local resultUpdate = ChiliadDB.update({
+    collection = 'players', 
+    query = {steamid = 'steam:abc123'}, 
+    update = {cash = 5000},
+    options = {upsert = true, selfInsertId = 'playerId'}
+})
+```
+
 
 ## ✏️ ChiliadDB.updateOne
 `updateOne` is similar to `update` but modifies only the **first** matching document and returns its numeric id, or `false` if no match was found. Useful when you know there is at most one record and want to avoid accidental bulk updates.
