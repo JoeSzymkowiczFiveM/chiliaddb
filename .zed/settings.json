@@ -1,0 +1,17 @@
+{
+  "lsp": {
+    "lua-language-server": {
+      "settings": {
+        "Lua": {
+          "runtime": {
+            "version": "Lua 5.4",
+            "nonstandardSymbol": ["/**/", "`", "+=", "-=", "*=", "/="],
+          },
+          "diagnostics": {
+            "globals": ["lib", "cache"],
+          },
+        },
+      },
+    },
+  },
+}
