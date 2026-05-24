@@ -503,6 +503,48 @@ exports('updateOne', function(data, resource)
     end
 end)
 
+exports('touch', function(data, resource)
+    if not utils.paramChecker(data, resource, 'touch') then return false end
+    local collection, query = tostring(data.collection), data.query
+    if query.id then
+        local id = query.id
+        if not database[collection] or not database[collection][id] then return false end
+        lockDocument(collection, id)
+        database[collection][id].lastUpdated = os.time()*1000
+        unlockDocument(collection, id)
+        addToAmendments(collection, id, 'update')
+        -- fireHook(collection, 'update', id, database[collection][id])
+        return {id}
+    else
+        local responseData = {}
+        if database[collection] then
+            local foundCollection = database[collection]
+            local ids = collections[collection].ids
+            local now = os.time() * 1000
+            for i=1, #ids do
+                local k = ids[i]
+                local v = foundCollection[k]
+                if utils.queryMatch(v, query) then
+                    lockDocument(collection, k)
+                    database[collection][k].lastUpdated = now
+                    unlockDocument(collection, k)
+                    addToAmendments(collection, k, 'update')
+                    responseData[#responseData + 1] = k
+                end
+            end
+            -- if #responseData > 0 then
+            --     local updatedDocs = {}
+            --     for i=1, #responseData do
+            --         updatedDocs[i] = database[collection][responseData[i]]
+            --     end
+            --     fireHook(collection, 'update', responseData, updatedDocs)
+            -- end
+            -- debating whether touch should trigger update hooks, leaving it out for now since it can be used for non-semantic purposes like preventing record expiration, but can always be added back in later if there's demand for it
+        end
+        return responseData
+    end
+end)
+
 exports('delete', function(data, resource)
     if not utils.paramChecker(data, resource, 'delete') then return false end
     local collection = tostring(data.collection)
@@ -731,6 +773,16 @@ exports('count', function(data, resource)
         end
     end
     return count
+end)
+
+exports('distinct', function(data, resource)
+    if not utils.paramChecker(data, resource, 'distinct') then return false end
+    local collection = tostring(data.collection)
+    if not databaseCollectionCheck(collection, resource) then return {} end
+    local field = tostring(data.field)
+    local query = data.query
+    local foundCollection = database[collection]
+    return queryHandlers.distinct(collections[collection], foundCollection, field, query)
 end)
 
 exports('createCollection', function(collection, resource)

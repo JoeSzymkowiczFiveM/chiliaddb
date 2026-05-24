@@ -50,4 +50,25 @@ function queryHandlers.exists(ids, collection, query)
     return false
 end
 
+function queryHandlers.distinct(collectionMeta, data, field, query)
+    local distinctValues = {}
+    local distinctMap = {}
+    local ids = collectionMeta.ids
+    for i = 1, #ids do
+        local k = ids[i]
+        local v = data[k]
+        if not query or utils.queryMatch(v, query) then
+            local fieldValue = v[field]
+            if fieldValue ~= nil then
+                local key = tostring(fieldValue)
+                if not distinctMap[key] then
+                    distinctMap[key] = true
+                    distinctValues[#distinctValues + 1] = fieldValue
+                end
+            end
+        end
+    end
+    return distinctValues
+end
+
 return queryHandlers
