@@ -191,6 +191,26 @@ print(policePlayers)
 ```
 
 
+## ✨ ChiliadDB.distinct
+`distinct` returns all unique values for a specified field across matching documents. Useful for building dropdown lists, getting all active jobs, etc. Returns an array of unique values.
+```lua
+-- Get all unique jobs from online players
+local jobs = ChiliadDB.distinct({
+    collection = 'players',
+    field = 'job',
+    query = { online = true }
+})
+print(json.encode(jobs, {indent=true})) -- e.g. { 'police', 'mechanic', 'civilian' }
+
+-- Get all unique jobs (no filter)
+local allJobs = ChiliadDB.distinct({
+    collection = 'players',
+    field = 'job'
+})
+print(json.encode(allJobs, {indent=true}))
+```
+
+
 ## 🔎 ChiliadDB.aggregate
 `aggregate` lets you query for specific documents, and then create groupings within that set based on like data within those documents.
 ```lua
@@ -257,3 +277,17 @@ ChiliadDB.setCollectionRetention({collection = 'tempTokens', remove = true})
 
 ### `retention` time units
 You can combine any of the following time unit keys: `seconds`, `minutes`, `hours`, `days`, `months`. Upon startup of the datastore, any document whose `lastUpdated` value is older than the computed retention period will be discarded and removed from KVP.
+
+
+## 8. Utilities
+
+### `touch`
+Update only the `lastUpdated` timestamp of a document without changing any other field. Useful for activity heartbeats (e.g., marking a player as recently seen).
+
+```lua
+ChiliadDB.touch({
+    collection = 'players',
+    query = { steamid = 'steam:abc123' }
+})
+-- Returns: array of updated ids
+```

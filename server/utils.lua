@@ -154,6 +154,7 @@ local functionParams = {
     findOne = {'collection'},
     update = {'collection', 'query', 'update'},
     updateOne = {'collection', 'query', 'update'},
+    touch = {'collection', 'query'},
     delete = {'collection', 'query'},
     deleteOne = {'collection', 'query'},
     exists = {'collection', 'query'},
@@ -164,6 +165,7 @@ local functionParams = {
     dropCollection = {'collection'},
     aggregate = {'collection', 'group'},
     count = {'collection'},
+    distinct = {'collection', 'field'},
     importCollection = {'collection'},
 }
 

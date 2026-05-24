@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.2.1] - 2026-05-24
+
+### Added
+
+- `distinct` export — returns all unique values for a specified field across matching documents; useful for building dropdown lists, getting all active jobs, etc.
+- `touch` export — update only the `lastUpdated` timestamp of a document without changing any other field. Useful for activity heartbeats (e.g., marking a player as recently seen).
+
 ## [0.2.0] - 2026-05-11
 
 ### Added
