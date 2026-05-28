@@ -13,6 +13,7 @@ local utils = require 'server.utils'
 local collections, database, documentLocks, collectionLocks, amendmentsList, amendmentsMap, dbLoaded = {}, {}, {}, {}, {},
     {}, false
 local syncInProgress, syncPending = false, false
+local collectionWriteQueues, collectionWriterRunning = {}, {}
 
 local function fireHook(collection, event, ...)
     TriggerEvent(string.format('chiliaddb:hook:%s:%s', collection, event), ...)
@@ -75,6 +76,69 @@ local function unlockCollection(collection)
     collectionLocks[collection] = false
 end
 
+local function processCollectionWriteQueue(collection)
+    collectionWriterRunning[collection] = true
+
+    while true do
+        local queue = collectionWriteQueues[collection]
+        if not queue or #queue == 0 then
+            collectionWriterRunning[collection] = false
+            collectionWriteQueues[collection] = nil
+            return
+        end
+
+        local item = table.remove(queue, 1)
+        local ok, result = pcall(item.fn)
+        item.complete(ok, result)
+    end
+end
+
+local function runCollectionWrite(collection, fn)
+    local queue = collectionWriteQueues[collection]
+
+    if not collectionWriterRunning[collection] and (not queue or #queue == 0) then
+        local ok, result = pcall(fn)
+        if not ok then
+            lib.print.error(string.format("Collection write queue failed for %s: %s", collection, result))
+            return false
+        end
+        return result
+    end
+
+    if not queue then
+        queue = {}
+        collectionWriteQueues[collection] = queue
+    end
+
+    local done, success, result = false, false, nil
+
+    queue[#queue + 1] = {
+        fn = fn,
+        complete = function(ok, value)
+            success = ok
+            result = value
+            done = true
+        end
+    }
+
+    if not collectionWriterRunning[collection] then
+        CreateThread(function()
+            processCollectionWriteQueue(collection)
+        end)
+    end
+
+    while not done do
+        Wait(0)
+    end
+
+    if not success then
+        lib.print.error(string.format("Collection write queue failed for %s: %s", collection, result))
+        return false
+    end
+
+    return result
+end
+
 local function lockAllCollections()
     for k in pairs(collections) do
         lockCollection(k)
@@ -133,12 +197,15 @@ function ExportCollection(collection)
         return false
     end
     CreateThread(function()
-        lockCollection(collection)
-        local payload = json.encode({
-            collection = collections[collection],
-            documents  = database[collection],
-        })
-        unlockCollection(collection)
+        local payload = runCollectionWrite(collection, function()
+            return json.encode({
+                collection = collections[collection],
+                documents = database[collection],
+            })
+        end)
+
+        if not payload then return end
+
         local filename = string.format("%s.json", collection)
         SaveResourceFile(cache.resource, filename, payload, -1)
         lib.print.info(string.format("Collection '%s' exported to %s", collection, filename))
@@ -423,153 +490,148 @@ end)
 exports('update', function(data, resource)
     if not utils.paramChecker(data, resource, 'update') then return false end
     local collection, query = tostring(data.collection), data.query
-    if query.id then
-        local id = query.id
-        if not database[collection] or not database[collection][id] then return false end
-        lockDocument(collection, id)
-        local document = database[collection][id]
-        for k, v in pairs(data.update) do
-            document[k] = v
-        end
-        document.lastUpdated = os.time() * 1000
-        unlockDocument(collection, id)
-        addToAmendments(collection, id, 'update')
-        fireHook(collection, 'update', id, database[collection][id])
-        return { id }
-    else
-        local responseData = {}
-        if database[collection] then
-            local foundCollection = database[collection]
-            local ids = collections[collection].ids
-            local now = os.time() * 1000
-            for i = 1, #ids do
-                local k = ids[i]
-                local v = foundCollection[k]
-                if utils.queryMatch(v, query) then
-                    lockDocument(collection, k)
-                    local document = database[collection][k]
-                    for k2, v2 in pairs(data.update) do
-                        document[k2] = v2
-                    end
-                    document.lastUpdated = now
-                    unlockDocument(collection, k)
-                    addToAmendments(collection, k, 'update')
-                    responseData[#responseData + 1] = k
-                end
-            end
-            if #responseData > 0 then
-                local updatedDocs = {}
-                for i = 1, #responseData do
-                    updatedDocs[i] = database[collection][responseData[i]]
-                end
-                fireHook(collection, 'update', responseData, updatedDocs)
-            end
-        end
-        if #responseData == 0 and data.options and data.options.upsert then
-            local options = data.options
-            local newInsertDocument = {}
-            for k, v in pairs(data.query) do
-                newInsertDocument[k] = newInsertDocument[k] or v
-            end
+
+    return runCollectionWrite(collection, function()
+        if query.id then
+            local id = query.id
+            if not database[collection] or not database[collection][id] then return false end
+            local document = database[collection][id]
             for k, v in pairs(data.update) do
-                newInsertDocument[k] = newInsertDocument[k] or v
+                document[k] = v
             end
-            local insertedId = incrementIndex(collection)
-            if options.selfInsertId then
-                newInsertDocument = utils.selfInsertId(insertedId, newInsertDocument, options.selfInsertId)
+            document.lastUpdated = os.time() * 1000
+            addToAmendments(collection, id, 'update')
+            fireHook(collection, 'update', id, database[collection][id])
+            return { id }
+        else
+            local responseData = {}
+            if database[collection] then
+                local foundCollection = database[collection]
+                local ids = collections[collection].ids
+                local now = os.time() * 1000
+                for i = 1, #ids do
+                    local k = ids[i]
+                    local v = foundCollection[k]
+                    if utils.queryMatch(v, query) then
+                        local document = database[collection][k]
+                        for k2, v2 in pairs(data.update) do
+                            document[k2] = v2
+                        end
+                        document.lastUpdated = now
+                        addToAmendments(collection, k, 'update')
+                        responseData[#responseData + 1] = k
+                    end
+                end
+                if #responseData > 0 then
+                    local updatedDocs = {}
+                    for i = 1, #responseData do
+                        updatedDocs[i] = database[collection][responseData[i]]
+                    end
+                    fireHook(collection, 'update', responseData, updatedDocs)
+                end
             end
-            lockCollection(collection)
-            database[collection][insertedId] = newInsertDocument
-            database[collection][insertedId].lastUpdated = os.time() * 1000
-            addToAmendments(collection, insertedId, 'insert')
-            unlockCollection(collection)
-            fireHook(collection, 'insert', insertedId, database[collection][insertedId])
-            return { insertedId }
+            if #responseData == 0 and data.options and data.options.upsert then
+                local options = data.options
+                local newInsertDocument = {}
+                for k, v in pairs(data.query) do
+                    newInsertDocument[k] = newInsertDocument[k] or v
+                end
+                for k, v in pairs(data.update) do
+                    newInsertDocument[k] = newInsertDocument[k] or v
+                end
+                local insertedId = incrementIndex(collection)
+                if options.selfInsertId then
+                    newInsertDocument = utils.selfInsertId(insertedId, newInsertDocument, options.selfInsertId)
+                end
+                database[collection][insertedId] = newInsertDocument
+                database[collection][insertedId].lastUpdated = os.time() * 1000
+                addToAmendments(collection, insertedId, 'insert')
+                fireHook(collection, 'insert', insertedId, database[collection][insertedId])
+                return { insertedId }
+            end
+            return responseData
         end
-        return responseData
-    end
+    end)
 end)
 
 exports('updateOne', function(data, resource)
     if not utils.paramChecker(data, resource, 'updateOne') then return false end
     local collection, query = tostring(data.collection), data.query
-    if query.id then
-        local id = query.id
-        if not database[collection] or not database[collection][id] then return false end
-        lockDocument(collection, id)
-        local document = database[collection][id]
-        for k, v in pairs(data.update) do
-            document[k] = v
-        end
-        document.lastUpdated = os.time() * 1000
-        unlockDocument(collection, id)
-        addToAmendments(collection, id, 'update')
-        fireHook(collection, 'update', id, database[collection][id])
-        return id
-    else
-        if not databaseCollectionCheck(collection, resource) then return false end
-        local foundCollection = database[collection]
-        local ids = collections[collection].ids
-        for i = 1, #ids do
-            local k = ids[i]
-            local v = foundCollection[k]
-            if utils.queryMatch(v, query) then
-                lockDocument(collection, k)
-                local document = database[collection][k]
-                for k2, v2 in pairs(data.update) do
-                    document[k2] = v2
-                end
-                document.lastUpdated = os.time() * 1000
-                unlockDocument(collection, k)
-                addToAmendments(collection, k, 'update')
-                fireHook(collection, 'update', k, database[collection][k])
-                return k
+
+    return runCollectionWrite(collection, function()
+        if query.id then
+            local id = query.id
+            if not database[collection] or not database[collection][id] then return false end
+            local document = database[collection][id]
+            for k, v in pairs(data.update) do
+                document[k] = v
             end
+            document.lastUpdated = os.time() * 1000
+            addToAmendments(collection, id, 'update')
+            fireHook(collection, 'update', id, database[collection][id])
+            return id
+        else
+            if not databaseCollectionCheck(collection, resource) then return false end
+            local foundCollection = database[collection]
+            local ids = collections[collection].ids
+            for i = 1, #ids do
+                local k = ids[i]
+                local v = foundCollection[k]
+                if utils.queryMatch(v, query) then
+                    local document = database[collection][k]
+                    for k2, v2 in pairs(data.update) do
+                        document[k2] = v2
+                    end
+                    document.lastUpdated = os.time() * 1000
+                    addToAmendments(collection, k, 'update')
+                    fireHook(collection, 'update', k, database[collection][k])
+                    return k
+                end
+            end
+            return false
         end
-        return false
-    end
+    end)
 end)
 
 exports('touch', function(data, resource)
     if not utils.paramChecker(data, resource, 'touch') then return false end
     local collection, query = tostring(data.collection), data.query
-    if query.id then
-        local id = query.id
-        if not database[collection] or not database[collection][id] then return false end
-        lockDocument(collection, id)
-        database[collection][id].lastUpdated = os.time() * 1000
-        unlockDocument(collection, id)
-        addToAmendments(collection, id, 'update')
-        -- fireHook(collection, 'update', id, database[collection][id])
-        return { id }
-    else
-        local responseData = {}
-        if database[collection] then
-            local foundCollection = database[collection]
-            local ids = collections[collection].ids
-            local now = os.time() * 1000
-            for i = 1, #ids do
-                local k = ids[i]
-                local v = foundCollection[k]
-                if utils.queryMatch(v, query) then
-                    lockDocument(collection, k)
-                    database[collection][k].lastUpdated = now
-                    unlockDocument(collection, k)
-                    addToAmendments(collection, k, 'update')
-                    responseData[#responseData + 1] = k
+
+    return runCollectionWrite(collection, function()
+        if query.id then
+            local id = query.id
+            if not database[collection] or not database[collection][id] then return false end
+            database[collection][id].lastUpdated = os.time() * 1000
+            addToAmendments(collection, id, 'update')
+            -- fireHook(collection, 'update', id, database[collection][id])
+            return { id }
+        else
+            local responseData = {}
+            if database[collection] then
+                local foundCollection = database[collection]
+                local ids = collections[collection].ids
+                local now = os.time() * 1000
+                for i = 1, #ids do
+                    local k = ids[i]
+                    local v = foundCollection[k]
+                    if utils.queryMatch(v, query) then
+                        database[collection][k].lastUpdated = now
+                        addToAmendments(collection, k, 'update')
+                        responseData[#responseData + 1] = k
+                    end
                 end
+                -- if #responseData > 0 then
+                --     local updatedDocs = {}
+                --     for i=1, #responseData do
+                --         updatedDocs[i] = database[collection][responseData[i]]
+                --     end
+                --     fireHook(collection, 'update', responseData, updatedDocs)
+                -- end
+                -- debating whether touch should trigger update hooks, leaving it out for now since it can be used for non-semantic purposes like preventing record expiration, but can always be added back in later if there's demand for it
             end
-            -- if #responseData > 0 then
-            --     local updatedDocs = {}
-            --     for i=1, #responseData do
-            --         updatedDocs[i] = database[collection][responseData[i]]
-            --     end
-            --     fireHook(collection, 'update', responseData, updatedDocs)
-            -- end
-            -- debating whether touch should trigger update hooks, leaving it out for now since it can be used for non-semantic purposes like preventing record expiration, but can always be added back in later if there's demand for it
+            return responseData
         end
-        return responseData
-    end
+    end)
 end)
 
 exports('delete', function(data, resource)
@@ -577,29 +639,28 @@ exports('delete', function(data, resource)
     local collection = tostring(data.collection)
     if not databaseCollectionCheck(collection, resource) then return false end
     local query = data.query
-    if query.id then
-        local id = query.id
-        if database[collection][id] then
-            local deletedDoc = database[collection][id]
-            lockCollection(collection)
-            DeleteDocument(collection, id)
-            unlockCollection(collection)
-            fireHook(collection, 'delete', { id }, { deletedDoc })
-            return { id }
+
+    return runCollectionWrite(collection, function()
+        if query.id then
+            local id = query.id
+            if database[collection][id] then
+                local deletedDoc = database[collection][id]
+                DeleteDocument(collection, id)
+                fireHook(collection, 'delete', { id }, { deletedDoc })
+                return { id }
+            end
+            return false
+        else
+            local keys = queryHandlers.delete(collections[collection], database[collection], query)
+            local deletedDocs = {}
+            for i = 1, #keys do
+                deletedDocs[i] = database[collection][keys[i]]
+            end
+            deleteDocuments(collection, keys)
+            fireHook(collection, 'delete', keys, deletedDocs)
+            return keys
         end
-        return false
-    else
-        local keys = queryHandlers.delete(collections[collection], database[collection], query)
-        local deletedDocs = {}
-        for i = 1, #keys do
-            deletedDocs[i] = database[collection][keys[i]]
-        end
-        lockCollection(collection)
-        deleteDocuments(collection, keys)
-        unlockCollection(collection)
-        fireHook(collection, 'delete', keys, deletedDocs)
-        return keys
-    end
+    end)
 end)
 
 exports('deleteOne', function(data, resource)
@@ -607,33 +668,32 @@ exports('deleteOne', function(data, resource)
     local collection = tostring(data.collection)
     if not databaseCollectionCheck(collection, resource) then return false end
     local query = data.query
-    if query.id then
-        local id = query.id
-        if database[collection][id] then
-            local deletedDoc = database[collection][id]
-            lockCollection(collection)
-            DeleteDocument(collection, id)
-            unlockCollection(collection)
-            fireHook(collection, 'delete', id, deletedDoc)
-            return id
-        end
-        return false
-    else
-        local ids = collections[collection].ids
-        for i = 1, #ids do
-            local k = ids[i]
-            local v = database[collection][k]
-            if utils.queryMatch(v, query) then
-                local deletedDoc = database[collection][k]
-                lockCollection(collection)
-                DeleteDocument(collection, k)
-                unlockCollection(collection)
-                fireHook(collection, 'delete', k, deletedDoc)
-                return k
+
+    return runCollectionWrite(collection, function()
+        if query.id then
+            local id = query.id
+            if database[collection][id] then
+                local deletedDoc = database[collection][id]
+                DeleteDocument(collection, id)
+                fireHook(collection, 'delete', id, deletedDoc)
+                return id
             end
+            return false
+        else
+            local ids = collections[collection].ids
+            for i = 1, #ids do
+                local k = ids[i]
+                local v = database[collection][k]
+                if utils.queryMatch(v, query) then
+                    local deletedDoc = database[collection][k]
+                    DeleteDocument(collection, k)
+                    fireHook(collection, 'delete', k, deletedDoc)
+                    return k
+                end
+            end
+            return false
         end
-        return false
-    end
+    end)
 end)
 
 exports('exists', function(data, resource)
@@ -650,99 +710,102 @@ end)
 
 exports('insertOne', function(data, resource)
     if not utils.paramChecker(data, resource, 'insertOne') then return false end
-    --skipIfExists only works for non-table values
-    if data.options and data.options.skipIfExists and skipIfExistsHandler(data.collection, data.document, data.options) == false then return false end
-    local collection, document = tostring(data.collection), data.document
-    local insertedId = incrementIndex(collection)
-    local foundCollection = database[collection]
-    if data.options then
-        document = optionsHandlers.insert(insertedId, document, data.options)
-    end
-    document.lastUpdated = os.time() * 1000
-    if foundCollection[insertedId] then
-        return false
-    end
-    lockCollection(collection)
-    foundCollection[insertedId] = document
-    unlockCollection(collection)
-    addToAmendments(collection, insertedId, 'insert')
-    fireHook(collection, 'insert', insertedId, document)
-    return insertedId
+    local collection = tostring(data.collection)
+
+    return runCollectionWrite(collection, function()
+        --skipIfExists only works for non-table values
+        if data.options and data.options.skipIfExists and skipIfExistsHandler(collection, data.document, data.options) == false then return false end
+
+        local document = data.document
+        local insertedId = incrementIndex(collection)
+        local foundCollection = database[collection]
+        if data.options then
+            document = optionsHandlers.insert(insertedId, document, data.options)
+        end
+        document.lastUpdated = os.time() * 1000
+        if foundCollection[insertedId] then
+            return false
+        end
+        foundCollection[insertedId] = document
+        addToAmendments(collection, insertedId, 'insert')
+        fireHook(collection, 'insert', insertedId, document)
+        return insertedId
+    end)
 end)
 
 exports('insert', function(data, resource)
     if not utils.paramChecker(data, resource, 'insert') then return false end
     local collection = tostring(data.collection)
-    if not databaseCollectionCheck(collection, resource) then
-        createCollection(collection)
-    end
-    local responseData = {}
-    lockCollection(collection)
-    local now = os.time() * 1000
-    for i = 1, #data.documents do
-        local document = data.documents[i]
-        if data.options and data.options.skipIfExists and not skipIfExistsHandler(collection, document, data.options) then
-            responseData[#responseData + 1] = false
-            goto continue
+
+    return runCollectionWrite(collection, function()
+        if not databaseCollectionCheck(collection, resource) then
+            createCollection(collection)
         end
-        local insertedId = incrementIndex(collection)
-        if data.options then
-            document = optionsHandlers.insert(insertedId, document, data.options)
+        local responseData = {}
+        local now = os.time() * 1000
+        for i = 1, #data.documents do
+            local document = data.documents[i]
+            if data.options and data.options.skipIfExists and not skipIfExistsHandler(collection, document, data.options) then
+                responseData[#responseData + 1] = false
+                goto continue
+            end
+            local insertedId = incrementIndex(collection)
+            if data.options then
+                document = optionsHandlers.insert(insertedId, document, data.options)
+            end
+            document.lastUpdated = now
+            database[collection][insertedId] = document
+            addToAmendments(collection, insertedId, 'insert')
+            responseData[#responseData + 1] = insertedId
+            ::continue::
         end
-        -- document = data.options and optionsHandlers.insert(insertedId, document, data.options) or document
-        document.lastUpdated = now
-        database[collection][insertedId] = document
-        addToAmendments(collection, insertedId, 'insert')
-        responseData[#responseData + 1] = insertedId
-        ::continue::
-    end
-    unlockCollection(collection)
-    local insertedIds, insertedDocs = {}, {}
-    for i = 1, #responseData do
-        if responseData[i] then
-            insertedIds[#insertedIds + 1] = responseData[i]
-            insertedDocs[#insertedDocs + 1] = database[collection][responseData[i]]
+        local insertedIds, insertedDocs = {}, {}
+        for i = 1, #responseData do
+            if responseData[i] then
+                insertedIds[#insertedIds + 1] = responseData[i]
+                insertedDocs[#insertedDocs + 1] = database[collection][responseData[i]]
+            end
         end
-    end
-    if #insertedIds > 0 then
-        fireHook(collection, 'insert', insertedIds, insertedDocs)
-    end
-    return responseData
+        if #insertedIds > 0 then
+            fireHook(collection, 'insert', insertedIds, insertedDocs)
+        end
+        return responseData
+    end)
 end)
 
 exports('replaceOne', function(data, resource)
     if not utils.paramChecker(data, resource, 'replaceOne') then return false end
     if not databaseCollectionCheck(data.collection, resource) then return false end
-    local collection, document, foundCollection, query = tostring(data.collection), data.document,
-        database[tostring(data.collection)], data.query
-    if query.id then
-        local id = query.id
-        if not foundCollection or not foundCollection[id] then return false end
-        lockDocument(collection, id)
-        document.lastUpdated = os.time() * 1000
-        foundCollection[id] = document
-        unlockDocument(collection, id)
-        addToAmendments(collection, id, 'update')
-        fireHook(collection, 'update', id, document)
-        return id
-    else
-        local ids = collections[collection].ids
-        for i = 1, #ids do
-            local k = ids[i]
-            local v = foundCollection[k]
-            local match = utils.queryMatch(v, query)
-            if match then
-                lockDocument(collection, k)
-                document.lastUpdated = os.time() * 1000
-                foundCollection[k] = document
-                unlockDocument(collection, k)
-                addToAmendments(collection, k, 'update')
-                fireHook(collection, 'update', k, document)
-                return k
+    local collection, foundCollection, query = tostring(data.collection), database[tostring(data.collection)], data
+        .query
+
+    return runCollectionWrite(collection, function()
+        local document = data.document
+        if query.id then
+            local id = query.id
+            if not foundCollection or not foundCollection[id] then return false end
+            document.lastUpdated = os.time() * 1000
+            foundCollection[id] = document
+            addToAmendments(collection, id, 'update')
+            fireHook(collection, 'update', id, document)
+            return id
+        else
+            local ids = collections[collection].ids
+            for i = 1, #ids do
+                local k = ids[i]
+                local v = foundCollection[k]
+                local match = utils.queryMatch(v, query)
+                if match then
+                    document.lastUpdated = os.time() * 1000
+                    foundCollection[k] = document
+                    addToAmendments(collection, k, 'update')
+                    fireHook(collection, 'update', k, document)
+                    return k
+                end
             end
+            return false
         end
-        return false
-    end
+    end)
 end)
 
 exports('aggregate', function(data, resource)
@@ -969,54 +1032,58 @@ end)
 
 lib.callback.register('chiliaddb:server:createNewIndex', function(source, collection)
     if not utils.dbAccessCheck(source) then return {} end
-    local insertedId = incrementIndex(collection)
-    local foundCollection = database[collection]
-    if foundCollection[insertedId] then
-        return false
-    end
 
-    lockCollection(collection)
-    local document = {}
-    document.lastUpdated = os.time() * 1000
-    foundCollection[insertedId] = document
-    addToAmendments(collection, insertedId, 'insert')
-    unlockCollection(collection)
-    fireHook(collection, 'insert', insertedId, document)
-    return { id = insertedId, document = document }
+    return runCollectionWrite(collection, function()
+        local insertedId = incrementIndex(collection)
+        local foundCollection = database[collection]
+        if foundCollection[insertedId] then
+            return false
+        end
+
+        local document = {}
+        document.lastUpdated = os.time() * 1000
+        foundCollection[insertedId] = document
+        addToAmendments(collection, insertedId, 'insert')
+        fireHook(collection, 'insert', insertedId, document)
+        return { id = insertedId, document = document }
+    end)
 end)
 
 lib.callback.register('chiliaddb:server:createNewDocument', function(source, collection, id, document)
     if not utils.dbAccessCheck(source) then return {} end
-    local foundCollection = database[collection]
 
-    lockCollection(collection)
-    document.lastUpdated = os.time() * 1000
-    foundCollection[id] = document
-    addToAmendments(collection, id, 'insert')
-    unlockCollection(collection)
-    fireHook(collection, 'insert', id, document)
-    return true
+    return runCollectionWrite(collection, function()
+        local foundCollection = database[collection]
+        document.lastUpdated = os.time() * 1000
+        foundCollection[id] = document
+        addToAmendments(collection, id, 'insert')
+        fireHook(collection, 'insert', id, document)
+        return true
+    end)
 end)
 
 
 lib.callback.register('chiliaddb:server:deleteDocument', function(source, collection, id)
     if not utils.dbAccessCheck(source) or not database[collection][id] then return false end
-    local deletedDoc = database[collection][id]
-    DeleteDocument(collection, id)
-    fireHook(collection, 'delete', id, deletedDoc)
-    return true
+
+    return runCollectionWrite(collection, function()
+        local deletedDoc = database[collection][id]
+        DeleteDocument(collection, id)
+        fireHook(collection, 'delete', id, deletedDoc)
+        return true
+    end)
 end)
 
 lib.callback.register('chiliaddb:server:updateDocument', function(source, collection, id, data)
     if not utils.dbAccessCheck(source) or not database[collection][id] then return false end
 
-    lockDocument(collection, id)
-    data.lastUpdated = os.time() * 1000
-    database[collection][id] = data
-    unlockDocument(collection, id)
-    addToAmendments(collection, id, 'update')
-    fireHook(collection, 'update', id, data)
-    return true
+    return runCollectionWrite(collection, function()
+        data.lastUpdated = os.time() * 1000
+        database[collection][id] = data
+        addToAmendments(collection, id, 'update')
+        fireHook(collection, 'update', id, data)
+        return true
+    end)
 end)
 
 AddEventHandler('onResourceStart', function(resource)
