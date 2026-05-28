@@ -2,7 +2,7 @@
 
 if not lib.checkDependency('ox_lib', '3.28.1', true) then
     print(
-    "^1FAILED^7 - ChiliadDB failed to start due to missing ox_lib dependency. Please make sure you have the latest version of ox_lib.")
+        "^1FAILED^7 - ChiliadDB failed to start due to missing ox_lib dependency. Please make sure you have the latest version of ox_lib.")
     return
 end
 
@@ -12,6 +12,7 @@ local utils = require 'server.utils'
 
 local collections, database, documentLocks, collectionLocks, amendmentsList, amendmentsMap, dbLoaded = {}, {}, {}, {}, {},
     {}, false
+local syncInProgress, syncPending = false, false
 
 local function fireHook(collection, event, ...)
     TriggerEvent(string.format('chiliaddb:hook:%s:%s', collection, event), ...)
@@ -196,31 +197,50 @@ local function deleteFromKvp(collection, id)
 end
 
 local function doSyncToKvp()
-    -- Snapshot and immediately reset so new writes accumulate in fresh structures
-    -- while this batch is being written, without blocking the main thread.
-    local batch = amendmentsList
-    local batchCount = #batch
-    amendmentsList = {}
-    amendmentsMap = {}
-    local start = os.nanotime()
-    SetResourceKvpNoSync("collections", json.encode(collections))
-    if batchCount > 0 then
-        lib.print.debug("Syncing database to KVP")
-        for i = 1, batchCount do
-            local amendment = batch[i]
-            if amendment.action == 'insert' or amendment.action == 'update' then
-                insertUpdateIntoKvp(amendment.collection, amendment.id)
-            elseif amendment.action == 'delete' then
-                deleteFromKvp(amendment.collection, amendment.id)
-            end
-        end
-        lib.print.debug(string.format("Sync to KVP complete. %s amendments made. Elapsed: %.4f ms", batchCount,
-            (os.nanotime() - start) / 1e6))
+    if syncInProgress then
+        syncPending = true
+        return false
     end
-    FlushResourceKvp()
+
+    syncInProgress = true
+
+    repeat
+        syncPending = false
+
+        -- Snapshot and immediately reset so new writes accumulate in fresh structures
+        -- while this batch is being written, without blocking the main thread.
+        local batch = amendmentsList
+        local batchCount = #batch
+        amendmentsList = {}
+        amendmentsMap = {}
+        local start = os.nanotime()
+        SetResourceKvpNoSync("collections", json.encode(collections))
+        if batchCount > 0 then
+            lib.print.debug("Syncing database to KVP")
+            for i = 1, batchCount do
+                local amendment = batch[i]
+                if amendment.action == 'insert' or amendment.action == 'update' then
+                    insertUpdateIntoKvp(amendment.collection, amendment.id)
+                elseif amendment.action == 'delete' then
+                    deleteFromKvp(amendment.collection, amendment.id)
+                end
+            end
+            lib.print.debug(string.format("Sync to KVP complete. %s amendments made. Elapsed: %.4f ms", batchCount,
+                (os.nanotime() - start) / 1e6))
+        end
+        FlushResourceKvp()
+    until not syncPending
+
+    syncInProgress = false
+    return true
 end
 
 function SyncDataToKvp()
+    if syncInProgress then
+        syncPending = true
+        return
+    end
+
     CreateThread(doSyncToKvp)
 end
 
@@ -757,7 +777,7 @@ exports('dropCollection', DropCollection)
 exports('getCollectionDocumentCount', function(collection, resource)
     if not collection then
         lib.print.error(string.format(
-        "getCollectionDocumentCount call was improperly formatted, returning false. Called from %s. Sent data %s",
+            "getCollectionDocumentCount call was improperly formatted, returning false. Called from %s. Sent data %s",
             resource, collection))
         return false
     end
@@ -800,7 +820,7 @@ exports('createCollection', function(collection, resource)
     collection = tostring(collection)
     if not collection then
         lib.print.error(string.format(
-        "createCollection call was improperly formatted, returning false. Called from %s. Sent data %s", resource,
+            "createCollection call was improperly formatted, returning false. Called from %s. Sent data %s", resource,
             collection))
         return false
     end
@@ -883,7 +903,8 @@ end)
 exports('setCollectionRetention', function(data, resource)
     if not data or not data.collection then
         lib.print.error(string.format(
-        "setCollectionRetention call was improperly formatted, returning false. Called from %s. Sent data %s", resource,
+            "setCollectionRetention call was improperly formatted, returning false. Called from %s. Sent data %s",
+            resource,
             json.encode(data)))
         return false
     end
@@ -894,7 +915,7 @@ exports('setCollectionRetention', function(data, resource)
     else
         if not data.retention then
             lib.print.error(string.format(
-            "setCollectionRetention call was improperly formatted, returning false. Called from %s. Sent data %s",
+                "setCollectionRetention call was improperly formatted, returning false. Called from %s. Sent data %s",
                 resource, json.encode(data)))
             return false
         end
@@ -910,7 +931,8 @@ exports('getCollectionProperties', function(collection, resource)
     collection = tostring(collection)
     if not collection then
         lib.print.error(string.format(
-        "getCollectionProperties call was improperly formatted, returning false. Called from %s. Sent data %s", resource,
+            "getCollectionProperties call was improperly formatted, returning false. Called from %s. Sent data %s",
+            resource,
             json.encode(collection)))
         return false
     end

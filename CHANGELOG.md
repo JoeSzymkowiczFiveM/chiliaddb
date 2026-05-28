@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.2.2] - 2026-05-27
+
+### Added
+
+- `$mod`, `$size`, and `$type` query operators for `find`-style queries, enabling modulo checks, sequential table-length checks, and Lua type matching.
+- Documentation updates for the new operators and for the exact `find` option application order.
+
+### Changed
+
+- `find` option processing now applies `excludeIndexes` after `sort`, `limit`, and field projection, preserving correct ordering and limiting before converting results into a sequential array.
+- KVP sync batching now guards against overlapping sync threads and re-runs automatically when writes arrive during an active sync, reducing the chance of dropped pending amendments under concurrent activity.
+
+### Fixed
+
+- `$match` query handling now validates both operands as strings before calling `string.match`, avoiding type-related runtime errors on non-string fields.
+
 ## [0.2.1] - 2026-05-24
 
 ### Added

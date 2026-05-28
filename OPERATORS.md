@@ -88,4 +88,28 @@ local result = ChiliadDB.find({collection = 'test', query = { name = { ['$nin'] 
 print(json.encode(result, {indent=true})) -- returns documents where name field contains a value not equal to Joe or Joseph
 ```
 
+### `$mod`
+
+The `$mod` operator matches numeric field values where `value % divisor == remainder`. Pass a two-item table: `{divisor, remainder}`.
+```lua
+local result = ChiliadDB.find({collection = 'test', query = { age = { ['$mod'] = {10, 0} } }})
+print(json.encode(result, {indent=true})) -- returns documents where age is divisible by 10
+```
+
+### `$size`
+
+The `$size` operator matches table fields whose sequential length equals the specified number.
+```lua
+local result = ChiliadDB.find({collection = 'test', query = { tags = { ['$size'] = 3 } }})
+print(json.encode(result, {indent=true})) -- returns documents where tags is a table with 3 entries
+```
+
+### `$type`
+
+The `$type` operator matches fields whose Lua type equals the specified string such as `string`, `number`, `boolean`, or `table`.
+```lua
+local result = ChiliadDB.find({collection = 'test', query = { owner = { ['$type'] = 'string' } }})
+print(json.encode(result, {indent=true})) -- returns documents where owner is a string
+```
+
 These operators can be combined to create more complex queries, allowing for powerful and flexible data retrieval.

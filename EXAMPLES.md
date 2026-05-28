@@ -110,7 +110,7 @@ You can also use the `id` parameter in the `query` to specify a specific index f
 You can pass `options` parameters, to further help the search and response of the `find` function.
 
 #### sort
-This will sort the results by the specified field before any other options (such as `limit`) are applied. Provide a table with `field` (the document field to sort by) and `order` (`'asc'` for ascending, `'desc'` for descending, defaults to `'asc'`). Pair with `excludeIndexes` to receive a sequentially ordered array.
+This will sort the results by the specified field before other `find` response-shaping options are applied. The current option order is: `sort` → `limit` → field projection (`excludeFields` / `includeFields`) → `excludeIndexes`. Provide a table with `field` (the document field to sort by) and `order` (`'asc'` for ascending, `'desc'` for descending, defaults to `'asc'`). Pair with `excludeIndexes` to receive a sequentially ordered array.
 ```lua
 -- Get the top 10 players by score, returned as an ordered array
 local topPlayers = ChiliadDB.find({
@@ -128,7 +128,7 @@ print(json.encode(topPlayers, {indent=true}))
 This will limit the response records to the number specified in the `limit` value
 
 #### excludeIndexes
-This will remove the associated index/key from each record in the response, and pass back an entirely sequential array of tables. It's worth noting that since the you can delete records from the datastore, it's possible to create 'holes' in the indexes.
+This will remove the associated index/key from each record in the response, and pass back an entirely sequential array of tables. It's applied after `sort`, `limit`, and field projection so ordering and limiting remain correct. It's worth noting that since the you can delete records from the datastore, it's possible to create 'holes' in the indexes.
 
 #### excludeFields
 This will specify any fields that should not be included in the the response object(s).

@@ -5,9 +5,6 @@ function optionsHandlers.find(responseData, options, keys)
     if options.sort then
         keys = utils.sortKeys(responseData, keys, options.sort)
     end
-    if options.excludeIndexes then
-        responseData = utils.excludeIndexes(responseData, keys)
-    end
     if options.limit then
         responseData = utils.limitResults(responseData, options.limit, keys)
     end
@@ -15,6 +12,9 @@ function optionsHandlers.find(responseData, options, keys)
         responseData = utils.excludeFields(responseData, options.excludeFields, false)
     elseif options.includeFields and not options.excludeFields then
         responseData = utils.includeFields(responseData, options.includeFields, false)
+    end
+    if options.excludeIndexes then
+        responseData = utils.excludeIndexes(responseData, keys)
     end
     return responseData
 end

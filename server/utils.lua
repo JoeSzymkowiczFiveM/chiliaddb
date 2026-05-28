@@ -10,8 +10,18 @@ local comparisonOps = {
     ['$exists'] = function(a, b) return (b and a ~= nil) or (not b and a == nil) end,
     ['$in'] = function(a, b) return type(b) == 'table' and lib.table.contains(b, a) end,
     ['$nin'] = function(a, b) return type(b) == 'table' and not lib.table.contains(b, a) end,
-    ['$match'] = function(a, b) return string.match(a, b) end,
+    ['$match'] = function(a, b) return type(a) == 'string' and type(b) == 'string' and string.match(a, b) end,
     ['$contains'] = function(a, b) return type(a) == 'table' and lib.table.contains(a, b) end,
+    ['$mod'] = function(a, b)
+        return type(a) == 'number'
+            and type(b) == 'table'
+            and type(b[1]) == 'number'
+            and b[1] ~= 0
+            and type(b[2]) == 'number'
+            and a % b[1] == b[2]
+    end,
+    ['$size'] = function(a, b) return type(a) == 'table' and type(b) == 'number' and #a == b end,
+    ['$type'] = function(a, b) return type(b) == 'string' and type(a) == b end,
 }
 
 function utils.advancedSearchLogic(v, k2, k3, v3)
@@ -124,7 +134,7 @@ end
 function utils.sortKeys(responseData, keys, sort)
     local field = sort.field
     local order = sort.order or 'asc'
-    local sortedKeys = {table.unpack(keys)}
+    local sortedKeys = { table.unpack(keys) }
     table.sort(sortedKeys, function(a, b)
         local va = responseData[a] and responseData[a][field]
         local vb = responseData[b] and responseData[b][field]
@@ -141,7 +151,7 @@ function utils.sortKeys(responseData, keys, sort)
 end
 
 function utils.calculateMillis(retention)
-    local timeUnits = {months = 2592000, days = 86400, hours = 3600, minutes = 60, seconds = 1}
+    local timeUnits = { months = 2592000, days = 86400, hours = 3600, minutes = 60, seconds = 1 }
     local millis = 0
     for unit, seconds in pairs(timeUnits) do
         millis = millis + (retention[unit] or 0) * seconds
@@ -150,23 +160,23 @@ function utils.calculateMillis(retention)
 end
 
 local functionParams = {
-    find = {'collection'},
-    findOne = {'collection'},
-    update = {'collection', 'query', 'update'},
-    updateOne = {'collection', 'query', 'update'},
-    touch = {'collection', 'query'},
-    delete = {'collection', 'query'},
-    deleteOne = {'collection', 'query'},
-    exists = {'collection', 'query'},
-    insertOne = {'collection', 'document'},
-    insert = {'collection', 'documents'},
-    replaceOne = {'collection', 'query', 'document'},
-    renameCollection = {'collection', 'newName'},
-    dropCollection = {'collection'},
-    aggregate = {'collection', 'group'},
-    count = {'collection'},
-    distinct = {'collection', 'field'},
-    importCollection = {'collection'},
+    find = { 'collection' },
+    findOne = { 'collection' },
+    update = { 'collection', 'query', 'update' },
+    updateOne = { 'collection', 'query', 'update' },
+    touch = { 'collection', 'query' },
+    delete = { 'collection', 'query' },
+    deleteOne = { 'collection', 'query' },
+    exists = { 'collection', 'query' },
+    insertOne = { 'collection', 'document' },
+    insert = { 'collection', 'documents' },
+    replaceOne = { 'collection', 'query', 'document' },
+    renameCollection = { 'collection', 'newName' },
+    dropCollection = { 'collection' },
+    aggregate = { 'collection', 'group' },
+    count = { 'collection' },
+    distinct = { 'collection', 'field' },
+    importCollection = { 'collection' },
 }
 
 function utils.paramChecker(data, resource, export)
@@ -177,7 +187,8 @@ function utils.paramChecker(data, resource, export)
 
     for _, param in ipairs(functionParams[export]) do
         if not data[param] then
-            lib.print.error(string.format("%s call missing required parameter '%s'. Called from %s.", export, param, resource))
+            lib.print.error(string.format("%s call missing required parameter '%s'. Called from %s.", export, param,
+                resource))
             return false
         end
     end
@@ -193,7 +204,7 @@ function utils.groupHandler(responseData, group, keys)
             local key = keys[i]
             local document = responseData[key]
             local groupIds = {}
-            for i=1, #group.fields do
+            for i = 1, #group.fields do
                 local field = group.fields[i]
                 groupIds[#groupIds + 1] = document[field]
             end
@@ -208,7 +219,8 @@ function utils.groupHandler(responseData, group, keys)
                         aggregatedData[idString][field] = document[field]
                     end
                 end
-                aggregatedData[idString][sumAlias] = (aggregatedData[idString][sumAlias] or 0) + (document[group.sum] or 0)
+                aggregatedData[idString][sumAlias] = (aggregatedData[idString][sumAlias] or 0) +
+                (document[group.sum] or 0)
                 aggregatedData[idString].ids[#aggregatedData[idString].ids + 1] = key
             end
         end
