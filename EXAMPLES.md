@@ -240,6 +240,22 @@ local resultExists = ChiliadDB.createCollection('testCollection')
 ```
 
 
+
+## 🧭 ChiliadDB.ensureIndex
+`ensureIndex` creates an optional secondary index for exact equality lookups. Index definitions are stored with the collection metadata and rebuilt from documents when ChiliadDB starts. Use `unique = true` to reject duplicate indexed values on future inserts, updates, and replacements.
+```lua
+local ok = ChiliadDB.ensureIndex({
+    collection = 'players',
+    fields = {'citizenid'},
+    unique = true
+})
+print(ok) -- true if the index exists or was created, false if validation failed
+```
+
+Indexes can be single-field or compound (`fields = {'owner', 'plate'}`). Only non-nil scalar values are indexed; tables and missing fields are ignored. Indexes are used automatically for exact equality query fields in `find`, `findOne`, `exists`, `count`, `distinct`, `update`, `updateOne`, `delete`, `deleteOne`, `replaceOne`, `aggregate`, and `skipIfExists`. Operator queries like `{age = {['$gte'] = 18}}` continue to scan normally.
+
+
+
 ## 🗑️ ChiliadDB.dropCollection
 `dropCollection` will remove the collection specified and any documents within in.
 ```lua
@@ -279,9 +295,8 @@ ChiliadDB.setCollectionRetention({collection = 'tempTokens', remove = true})
 You can combine any of the following time unit keys: `seconds`, `minutes`, `hours`, `days`, `months`. Upon startup of the datastore, any document whose `lastUpdated` value is older than the computed retention period will be discarded and removed from KVP.
 
 
-## 8. Utilities
 
-### `touch`
+## 👉 ChiliadDB.touch
 Update only the `lastUpdated` timestamp of a document without changing any other field. Useful for activity heartbeats (e.g., marking a player as recently seen).
 
 ```lua

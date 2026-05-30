@@ -4,10 +4,10 @@ local utils = require 'server.utils'
 function queryHandlers.find(collection, data, query)
     local responseData, keys = {}, {}
     local ids = collection.ids
-    for i=1, #ids do
+    for i = 1, #ids do
         local k = ids[i]
         local v = data[k]
-        if utils.queryMatch(v, query) then
+        if v and utils.queryMatch(v, query) then
             responseData[k] = v
             keys[#keys + 1] = k
         end
@@ -16,10 +16,10 @@ function queryHandlers.find(collection, data, query)
 end
 
 function queryHandlers.findOne(ids, collection, query)
-    for i=1, #ids do
+    for i = 1, #ids do
         local k = ids[i]
         local v = collection[k]
-        if utils.queryMatch(v, query) then
+        if v and utils.queryMatch(v, query) then
             return k, v
         end
     end
@@ -32,7 +32,7 @@ function queryHandlers.delete(collectionMeta, data, query)
     for i = 1, #ids do
         local k = ids[i]
         local v = data[k]
-        if utils.queryMatch(v, query) then
+        if v and utils.queryMatch(v, query) then
             responseData[#responseData + 1] = k
         end
     end
@@ -40,10 +40,10 @@ function queryHandlers.delete(collectionMeta, data, query)
 end
 
 function queryHandlers.exists(ids, collection, query)
-    for i=1, #ids do
+    for i = 1, #ids do
         local k = ids[i]
         local v = collection[k]
-        if utils.queryMatch(v, query) then
+        if v and utils.queryMatch(v, query) then
             return true
         end
     end
@@ -57,7 +57,7 @@ function queryHandlers.distinct(collectionMeta, data, field, query)
     for i = 1, #ids do
         local k = ids[i]
         local v = data[k]
-        if not query or utils.queryMatch(v, query) then
+        if v and (not query or utils.queryMatch(v, query)) then
             local fieldValue = v[field]
             if fieldValue ~= nil then
                 local key = tostring(fieldValue)

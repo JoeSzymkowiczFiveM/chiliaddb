@@ -10,10 +10,11 @@ local optionsHandlers = require 'server.optionsHandlers'
 local queryHandlers = require 'server.queryHandlers'
 local utils = require 'server.utils'
 
-local collections, database, documentLocks, collectionLocks, amendmentsList, amendmentsMap, dbLoaded = {}, {}, {}, {}, {},
-    {}, false
+local collections, database, collectionLocks, amendmentsList, amendmentsMap, secondaryIndexes, dbLoaded =
+    {}, {}, {}, {}, {}, {}, false
 local syncInProgress, syncPending = false, false
 local collectionWriteQueues, collectionWriterRunning = {}, {}
+local buildCollectionIndexes, rebuildAllIndexes
 
 local function fireHook(collection, event, ...)
     TriggerEvent(string.format('chiliaddb:hook:%s:%s', collection, event), ...)
@@ -36,6 +37,7 @@ function DropDatabase()
         end
     end
     database = {}
+    secondaryIndexes = {}
     DeleteResourceKvpNoSync("collections")
     collections = {}
     FlushResourceKvp()
@@ -62,6 +64,7 @@ function DropCollection(collection)
     end
     collections[collection] = nil
     database[collection] = nil
+    secondaryIndexes[collection] = nil
     SetResourceKvpNoSync("collections", json.encode(collections))
     FlushResourceKvp()
     return true
@@ -139,6 +142,29 @@ local function runCollectionWrite(collection, fn)
     return result
 end
 
+function DropDocument(collection, id)
+    collection = tostring(collection)
+    id = tonumber(id)
+
+    if not database[collection] then
+        lib.print.error(string.format("dropDocument failed. Collection %s does not exist", collection))
+        return false
+    end
+
+    if not id or not database[collection][id] then
+        lib.print.error(string.format("dropDocument failed. Document %s does not exist in collection %s", tostring(id),
+            collection))
+        return false
+    end
+
+    return runCollectionWrite(collection, function()
+        local deletedDoc = database[collection][id]
+        DeleteDocument(collection, id)
+        fireHook(collection, 'delete', id, deletedDoc)
+        return true
+    end)
+end
+
 local function lockAllCollections()
     for k in pairs(collections) do
         lockCollection(k)
@@ -149,16 +175,6 @@ local function unlockAllCollections()
     for k in pairs(collections) do
         unlockCollection(k)
     end
-end
-
-local function lockDocument(collection, id)
-    documentLocks[collection] = documentLocks[collection] or {}
-    while documentLocks[collection][id] do Wait(0) end
-    documentLocks[collection][id] = true
-end
-
-local function unlockDocument(collection, id)
-    documentLocks[collection][id] = nil
 end
 
 function BackupDatabase()
@@ -177,6 +193,7 @@ function RestoreDatabase()
         collections = json.decode(LoadResourceFile(cache.resource, 'collections.json'))
         SetResourceKvpNoSync("collections", json.encode(collections))
         database = json.decode(LoadResourceFile(cache.resource, 'database.json'))
+        rebuildAllIndexes()
         for k, v in pairs(database) do
             for k2, v2 in pairs(v) do
                 if v2 ~= nil then
@@ -232,6 +249,7 @@ function ImportCollection(collection, filename)
         end
         collections[collection] = data.collection
         database[collection]    = data.documents
+        buildCollectionIndexes(collection)
         SetResourceKvpNoSync("collections", json.encode(collections))
         for k, v in pairs(data.documents) do
             if v ~= nil then
@@ -248,9 +266,222 @@ end
 local function createCollection(collection)
     collections[collection] = {
         currentIndex = 0,
-        ids = {}
+        ids = {},
+        indexes = {}
     }
     database[collection] = {}
+    secondaryIndexes[collection] = {}
+end
+
+local indexSeparator = string.char(31)
+
+local function normalizeIndexFields(fields)
+    if type(fields) == 'string' then return { fields } end
+    if type(fields) ~= 'table' then return nil end
+
+    local normalized = {}
+    for i = 1, #fields do
+        if type(fields[i]) ~= 'string' or fields[i] == '' then return nil end
+        normalized[#normalized + 1] = fields[i]
+    end
+
+    if #normalized == 0 then return nil end
+    return normalized
+end
+
+local function getIndexName(fields)
+    return table.concat(fields, indexSeparator)
+end
+
+local function isIndexableValue(value)
+    return value ~= nil and type(value) ~= 'table'
+end
+
+local function getIndexKey(document, fields)
+    if not document then return nil end
+
+    local values = {}
+    for i = 1, #fields do
+        local value = document[fields[i]]
+        if not isIndexableValue(value) then return nil end
+        values[i] = string.format('%s:%s', type(value), tostring(value))
+    end
+
+    return table.concat(values, indexSeparator)
+end
+
+local function ensureIndexMetadata(collection)
+    if not collections[collection] then createCollection(collection) end
+    collections[collection].indexes = collections[collection].indexes or {}
+    secondaryIndexes[collection] = secondaryIndexes[collection] or {}
+end
+
+local function addDocumentToIndexes(collection, id, document)
+    local indexes = secondaryIndexes[collection]
+    if not indexes then return true end
+
+    for _, index in pairs(indexes) do
+        local key = getIndexKey(document, index.fields)
+        if key then
+            if index.unique then
+                local existing = index.map[key]
+                if existing and existing ~= id then
+                    return false, string.format('duplicate value for unique index %s', table.concat(index.fields, ','))
+                end
+                index.map[key] = id
+            else
+                index.map[key] = index.map[key] or {}
+                index.map[key][id] = true
+            end
+        end
+    end
+
+    return true
+end
+
+local function removeDocumentFromIndexes(collection, id, document)
+    local indexes = secondaryIndexes[collection]
+    if not indexes then return end
+
+    for _, index in pairs(indexes) do
+        local key = getIndexKey(document, index.fields)
+        if key then
+            if index.unique then
+                if index.map[key] == id then index.map[key] = nil end
+            else
+                local bucket = index.map[key]
+                if bucket then
+                    bucket[id] = nil
+                    if not next(bucket) then index.map[key] = nil end
+                end
+            end
+        end
+    end
+end
+
+local function validateUniqueIndexes(collection, id, document)
+    local indexes = secondaryIndexes[collection]
+    if not indexes then return true end
+
+    for _, index in pairs(indexes) do
+        if index.unique then
+            local key = getIndexKey(document, index.fields)
+            local existing = key and index.map[key]
+            if existing and existing ~= id then
+                return false, string.format('duplicate value for unique index %s', table.concat(index.fields, ','))
+            end
+        end
+    end
+
+    return true
+end
+
+local function replaceDocumentInIndexes(collection, id, oldDocument, newDocument)
+    local ok, err = validateUniqueIndexes(collection, id, newDocument)
+    if not ok then return false, err end
+
+    removeDocumentFromIndexes(collection, id, oldDocument)
+    return addDocumentToIndexes(collection, id, newDocument)
+end
+
+buildCollectionIndexes = function(collection)
+    ensureIndexMetadata(collection)
+    secondaryIndexes[collection] = {}
+
+    for name, definition in pairs(collections[collection].indexes) do
+        local fields = normalizeIndexFields(definition.fields)
+        if fields then
+            secondaryIndexes[collection][name] = {
+                fields = fields,
+                unique = definition.unique == true,
+                map = {}
+            }
+        end
+    end
+
+    local ids = collections[collection].ids or {}
+    for i = 1, #ids do
+        local id = ids[i]
+        local ok, err = addDocumentToIndexes(collection, id, database[collection] and database[collection][id])
+        if not ok then return false, err end
+    end
+
+    return true
+end
+
+rebuildAllIndexes = function()
+    secondaryIndexes = {}
+    for collection in pairs(collections) do
+        local ok, err = buildCollectionIndexes(collection)
+        if not ok then
+            lib.print.error(string.format('Failed to build indexes for collection %s: %s', collection, err))
+        end
+    end
+end
+
+local function getIndexedIds(collection, query, preserveOrder)
+    if not query or query.id then return nil end
+    local indexes = secondaryIndexes[collection]
+    if not indexes then return nil end
+
+    for _, index in pairs(indexes) do
+        local pseudoDocument = {}
+        local indexable = true
+        for i = 1, #index.fields do
+            local field = index.fields[i]
+            local value = query[field]
+            if not isIndexableValue(value) then
+                indexable = false
+                break
+            end
+            pseudoDocument[field] = value
+        end
+
+        if indexable then
+            local indexedValue = index.map[getIndexKey(pseudoDocument, index.fields)]
+            if not indexedValue then return {} end
+            if index.unique then return { indexedValue } end
+
+            local ids = {}
+            if preserveOrder then
+                local collectionIds = collections[collection].ids
+                for i = 1, #collectionIds do
+                    local id = collectionIds[i]
+                    if indexedValue[id] then ids[#ids + 1] = id end
+                end
+            else
+                for id in pairs(indexedValue) do
+                    ids[#ids + 1] = id
+                end
+            end
+            return ids
+        end
+    end
+
+    return nil
+end
+
+local function copyDocumentWithUpdate(document, update)
+    local candidate = {}
+    for k, v in pairs(document) do
+        candidate[k] = v
+    end
+    for k, v in pairs(update) do
+        candidate[k] = v
+    end
+    return candidate
+end
+
+local function insertDocument(collection, id, document)
+    local ok, err = validateUniqueIndexes(collection, id, document)
+    if not ok then
+        lib.print.error(string.format('Insert failed for collection %s: %s', collection, err))
+        return false
+    end
+
+    database[collection][id] = document
+    addDocumentToIndexes(collection, id, document)
+    return true
 end
 
 local function insertUpdateIntoKvp(collection, id)
@@ -383,6 +614,7 @@ local function removeIdFromCollections(collection, id)
 end
 
 function DeleteDocument(collection, id)
+    removeDocumentFromIndexes(collection, id, database[collection][id])
     database[collection][id] = nil
     removeIdFromCollections(collection, id)
     addToAmendments(collection, id, 'delete')
@@ -424,7 +656,11 @@ end
 
 local function skipIfExistsHandler(collection, document, options)
     if not database[collection] then return true end
-    local ids = collections[collection].ids
+    local query = {}
+    for field in pairs(options.skipIfExists) do
+        query[field] = document[field]
+    end
+    local ids = getIndexedIds(collection, query) or collections[collection].ids
     for i = 1, #ids do
         local k = ids[i]
         local v = database[collection][k]
@@ -453,7 +689,8 @@ exports('find', function(data, resource)
         if query.id then
             return foundCollection[query.id]
         else
-            responseData, keys = queryHandlers.find(collections[collection], foundCollection, query)
+            local ids = getIndexedIds(collection, query) or collections[collection].ids
+            responseData, keys = queryHandlers.find({ ids = ids }, foundCollection, query)
         end
     else
         responseData, keys = foundCollection, collections[collection].ids
@@ -474,7 +711,8 @@ exports('findOne', function(data, resource)
             key = query.id
             responseData = foundCollection[key]
         else
-            key, responseData = queryHandlers.findOne(collections[collection].ids, foundCollection, query)
+            local ids = getIndexedIds(collection, query, true) or collections[collection].ids
+            key, responseData = queryHandlers.findOne(ids, foundCollection, query)
         end
     else
         key = collections[collection].ids[1]
@@ -496,10 +734,14 @@ exports('update', function(data, resource)
             local id = query.id
             if not database[collection] or not database[collection][id] then return false end
             local document = database[collection][id]
-            for k, v in pairs(data.update) do
-                document[k] = v
+            local candidate = copyDocumentWithUpdate(document, data.update)
+            candidate.lastUpdated = os.time() * 1000
+            local ok, err = replaceDocumentInIndexes(collection, id, document, candidate)
+            if not ok then
+                lib.print.error(string.format('Update failed for collection %s: %s', collection, err))
+                return false
             end
-            document.lastUpdated = os.time() * 1000
+            database[collection][id] = candidate
             addToAmendments(collection, id, 'update')
             fireHook(collection, 'update', id, database[collection][id])
             return { id }
@@ -507,20 +749,24 @@ exports('update', function(data, resource)
             local responseData = {}
             if database[collection] then
                 local foundCollection = database[collection]
-                local ids = collections[collection].ids
+                local ids = getIndexedIds(collection, query) or collections[collection].ids
                 local now = os.time() * 1000
                 for i = 1, #ids do
                     local k = ids[i]
                     local v = foundCollection[k]
-                    if utils.queryMatch(v, query) then
-                        local document = database[collection][k]
-                        for k2, v2 in pairs(data.update) do
-                            document[k2] = v2
+                    if v and utils.queryMatch(v, query) then
+                        local candidate = copyDocumentWithUpdate(v, data.update)
+                        candidate.lastUpdated = now
+                        local ok, err = replaceDocumentInIndexes(collection, k, v, candidate)
+                        if not ok then
+                            lib.print.error(string.format('Update failed for collection %s: %s', collection, err))
+                            goto continueUpdate
                         end
-                        document.lastUpdated = now
+                        database[collection][k] = candidate
                         addToAmendments(collection, k, 'update')
                         responseData[#responseData + 1] = k
                     end
+                    ::continueUpdate::
                 end
                 if #responseData > 0 then
                     local updatedDocs = {}
@@ -543,8 +789,8 @@ exports('update', function(data, resource)
                 if options.selfInsertId then
                     newInsertDocument = utils.selfInsertId(insertedId, newInsertDocument, options.selfInsertId)
                 end
-                database[collection][insertedId] = newInsertDocument
-                database[collection][insertedId].lastUpdated = os.time() * 1000
+                newInsertDocument.lastUpdated = os.time() * 1000
+                if not insertDocument(collection, insertedId, newInsertDocument) then return false end
                 addToAmendments(collection, insertedId, 'insert')
                 fireHook(collection, 'insert', insertedId, database[collection][insertedId])
                 return { insertedId }
@@ -563,26 +809,33 @@ exports('updateOne', function(data, resource)
             local id = query.id
             if not database[collection] or not database[collection][id] then return false end
             local document = database[collection][id]
-            for k, v in pairs(data.update) do
-                document[k] = v
+            local candidate = copyDocumentWithUpdate(document, data.update)
+            candidate.lastUpdated = os.time() * 1000
+            local ok, err = replaceDocumentInIndexes(collection, id, document, candidate)
+            if not ok then
+                lib.print.error(string.format('Update failed for collection %s: %s', collection, err))
+                return false
             end
-            document.lastUpdated = os.time() * 1000
+            database[collection][id] = candidate
             addToAmendments(collection, id, 'update')
             fireHook(collection, 'update', id, database[collection][id])
             return id
         else
             if not databaseCollectionCheck(collection, resource) then return false end
             local foundCollection = database[collection]
-            local ids = collections[collection].ids
+            local ids = getIndexedIds(collection, query, true) or collections[collection].ids
             for i = 1, #ids do
                 local k = ids[i]
                 local v = foundCollection[k]
-                if utils.queryMatch(v, query) then
-                    local document = database[collection][k]
-                    for k2, v2 in pairs(data.update) do
-                        document[k2] = v2
+                if v and utils.queryMatch(v, query) then
+                    local candidate = copyDocumentWithUpdate(v, data.update)
+                    candidate.lastUpdated = os.time() * 1000
+                    local ok, err = replaceDocumentInIndexes(collection, k, v, candidate)
+                    if not ok then
+                        lib.print.error(string.format('Update failed for collection %s: %s', collection, err))
+                        return false
                     end
-                    document.lastUpdated = os.time() * 1000
+                    database[collection][k] = candidate
                     addToAmendments(collection, k, 'update')
                     fireHook(collection, 'update', k, database[collection][k])
                     return k
@@ -651,7 +904,8 @@ exports('delete', function(data, resource)
             end
             return false
         else
-            local keys = queryHandlers.delete(collections[collection], database[collection], query)
+            local ids = getIndexedIds(collection, query) or collections[collection].ids
+            local keys = queryHandlers.delete({ ids = ids }, database[collection], query)
             local deletedDocs = {}
             for i = 1, #keys do
                 deletedDocs[i] = database[collection][keys[i]]
@@ -680,11 +934,11 @@ exports('deleteOne', function(data, resource)
             end
             return false
         else
-            local ids = collections[collection].ids
+            local ids = getIndexedIds(collection, query, true) or collections[collection].ids
             for i = 1, #ids do
                 local k = ids[i]
                 local v = database[collection][k]
-                if utils.queryMatch(v, query) then
+                if v and utils.queryMatch(v, query) then
                     local deletedDoc = database[collection][k]
                     DeleteDocument(collection, k)
                     fireHook(collection, 'delete', k, deletedDoc)
@@ -704,7 +958,8 @@ exports('exists', function(data, resource)
     if query.id then
         return foundCollection[query.id] and true or false
     else
-        return queryHandlers.exists(collections[collection].ids, foundCollection, data.query)
+        local ids = getIndexedIds(collection, query) or collections[collection].ids
+        return queryHandlers.exists(ids, foundCollection, data.query)
     end
 end)
 
@@ -726,7 +981,7 @@ exports('insertOne', function(data, resource)
         if foundCollection[insertedId] then
             return false
         end
-        foundCollection[insertedId] = document
+        if not insertDocument(collection, insertedId, document) then return false end
         addToAmendments(collection, insertedId, 'insert')
         fireHook(collection, 'insert', insertedId, document)
         return insertedId
@@ -754,7 +1009,10 @@ exports('insert', function(data, resource)
                 document = optionsHandlers.insert(insertedId, document, data.options)
             end
             document.lastUpdated = now
-            database[collection][insertedId] = document
+            if not insertDocument(collection, insertedId, document) then
+                responseData[#responseData + 1] = false
+                goto continue
+            end
             addToAmendments(collection, insertedId, 'insert')
             responseData[#responseData + 1] = insertedId
             ::continue::
@@ -785,18 +1043,28 @@ exports('replaceOne', function(data, resource)
             local id = query.id
             if not foundCollection or not foundCollection[id] then return false end
             document.lastUpdated = os.time() * 1000
+            local ok, err = replaceDocumentInIndexes(collection, id, foundCollection[id], document)
+            if not ok then
+                lib.print.error(string.format('Replace failed for collection %s: %s', collection, err))
+                return false
+            end
             foundCollection[id] = document
             addToAmendments(collection, id, 'update')
             fireHook(collection, 'update', id, document)
             return id
         else
-            local ids = collections[collection].ids
+            local ids = getIndexedIds(collection, query, true) or collections[collection].ids
             for i = 1, #ids do
                 local k = ids[i]
                 local v = foundCollection[k]
-                local match = utils.queryMatch(v, query)
+                local match = v and utils.queryMatch(v, query)
                 if match then
                     document.lastUpdated = os.time() * 1000
+                    local ok, err = replaceDocumentInIndexes(collection, k, foundCollection[k], document)
+                    if not ok then
+                        lib.print.error(string.format('Replace failed for collection %s: %s', collection, err))
+                        return false
+                    end
                     foundCollection[k] = document
                     addToAmendments(collection, k, 'update')
                     fireHook(collection, 'update', k, document)
@@ -814,7 +1082,8 @@ exports('aggregate', function(data, resource)
     local foundCollection, collection, query, responseData, keys, group = database[data.collection],
         tostring(data.collection), data.query, {}, {}, data.group
     if query then
-        responseData, keys = queryHandlers.find(collections[collection], foundCollection, query)
+        local ids = getIndexedIds(collection, query) or collections[collection].ids
+        responseData, keys = queryHandlers.find({ ids = ids }, foundCollection, query)
     else
         responseData, keys = foundCollection, collections[collection].ids
     end
@@ -858,7 +1127,7 @@ exports('count', function(data, resource)
         return #collections[collection].ids
     end
     local foundCollection = database[collection]
-    local ids = collections[collection].ids
+    local ids = getIndexedIds(collection, query) or collections[collection].ids
     local count = 0
     for i = 1, #ids do
         local k = ids[i]
@@ -876,7 +1145,8 @@ exports('distinct', function(data, resource)
     local field = tostring(data.field)
     local query = data.query
     local foundCollection = database[collection]
-    return queryHandlers.distinct(collections[collection], foundCollection, field, query)
+    local ids = query and getIndexedIds(collection, query) or collections[collection].ids
+    return queryHandlers.distinct({ ids = ids }, foundCollection, field, query)
 end)
 
 exports('createCollection', function(collection, resource)
@@ -905,6 +1175,46 @@ exports('collectionExists', function(collection, resource)
     return collections[collection] ~= nil
 end)
 
+exports('ensureIndex', function(data, resource)
+    if not utils.paramChecker(data, resource, 'ensureIndex') then return false end
+
+    local collection = tostring(data.collection)
+    local fields = normalizeIndexFields(data.fields)
+    if not fields then
+        lib.print.error(string.format('ensureIndex call has invalid fields. Called from %s.', resource))
+        return false
+    end
+
+    return runCollectionWrite(collection, function()
+        ensureIndexMetadata(collection)
+        local name = getIndexName(fields)
+        local existing = collections[collection].indexes[name]
+        local unique = data.unique == true
+
+        if existing then
+            if existing.unique == unique then return true end
+            lib.print.error(string.format('ensureIndex call failed. Index already exists with different options in %s.',
+                collection))
+            return false
+        end
+
+        collections[collection].indexes[name] = {
+            fields = fields,
+            unique = unique
+        }
+
+        local ok, err = buildCollectionIndexes(collection)
+        if not ok then
+            collections[collection].indexes[name] = nil
+            buildCollectionIndexes(collection)
+            lib.print.error(string.format('ensureIndex call failed for collection %s: %s', collection, err))
+            return false
+        end
+
+        return true
+    end)
+end)
+
 function RenameCollection(collection, newName, resource)
     if not databaseCollectionCheck(collection, resource) then return false end
     if databaseCollectionCheck(newName, resource) then return false end
@@ -917,8 +1227,10 @@ function RenameCollection(collection, newName, resource)
 
     collections[newName] = oldCollectionMeta
     database[newName] = oldCollectionData
+    secondaryIndexes[newName] = secondaryIndexes[collection]
     collections[collection] = nil
     database[collection] = nil
+    secondaryIndexes[collection] = nil
 
     local newAmendmentsList, newAmendmentsMap = {}, {}
     for i = 1, #amendmentsList do
@@ -948,8 +1260,6 @@ function RenameCollection(collection, newName, resource)
         DeleteResourceKvpNoSync(string.format("%s:%d", collection, id))
     end
 
-    documentLocks[newName] = documentLocks[collection]
-    documentLocks[collection] = nil
     collectionLocks[collection] = nil
     unlockCollection(newName)
 
@@ -1042,7 +1352,7 @@ lib.callback.register('chiliaddb:server:createNewIndex', function(source, collec
 
         local document = {}
         document.lastUpdated = os.time() * 1000
-        foundCollection[insertedId] = document
+        if not insertDocument(collection, insertedId, document) then return false end
         addToAmendments(collection, insertedId, 'insert')
         fireHook(collection, 'insert', insertedId, document)
         return { id = insertedId, document = document }
@@ -1053,9 +1363,8 @@ lib.callback.register('chiliaddb:server:createNewDocument', function(source, col
     if not utils.dbAccessCheck(source) then return {} end
 
     return runCollectionWrite(collection, function()
-        local foundCollection = database[collection]
         document.lastUpdated = os.time() * 1000
-        foundCollection[id] = document
+        if not insertDocument(collection, id, document) then return false end
         addToAmendments(collection, id, 'insert')
         fireHook(collection, 'insert', id, document)
         return true
@@ -1079,6 +1388,11 @@ lib.callback.register('chiliaddb:server:updateDocument', function(source, collec
 
     return runCollectionWrite(collection, function()
         data.lastUpdated = os.time() * 1000
+        local ok, err = replaceDocumentInIndexes(collection, id, database[collection][id], data)
+        if not ok then
+            lib.print.error(string.format('Update failed for collection %s: %s', collection, err))
+            return false
+        end
         database[collection][id] = data
         addToAmendments(collection, id, 'update')
         fireHook(collection, 'update', id, data)
@@ -1090,6 +1404,7 @@ AddEventHandler('onResourceStart', function(resource)
     if resource ~= cache.resource then return end
     collections = json.decode(GetResourceKvpString("collections") or "{}")
     database = propagateDatabaseFromKvp()
+    rebuildAllIndexes()
     dbLoaded = true
 end)
 

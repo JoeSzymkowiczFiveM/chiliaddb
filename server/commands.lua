@@ -70,14 +70,14 @@ lib.addCommand('cdb_drop', {
         },
     }
 }, function(source, args, raw)
-    if args.collection then
+    if args.collection and args.index then
+        DropDocument(args.collection, args.index)
+    elseif args.collection then
         if args.collection == 'all' then
             DropDatabase()
         else
             DropCollection(args.collection)
         end
-    elseif args.collection and args.index then
-        DeleteDocument(args.collection, args.index)
     end
 end)
 
