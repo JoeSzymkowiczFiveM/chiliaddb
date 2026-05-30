@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.3.0]
+
+### Added
+
+- `ensureIndex` export for optional secondary indexes on collection fields, including unique indexes and compound field definitions.
+- Indexed exact-equality lookup support for `find`, `findOne`, `exists`, `count`, `distinct`, `aggregate`, `skipIfExists`, `update`, `updateOne`, `delete`, `deleteOne`, and `replaceOne`.
+
+### Changed
+
+- Collection metadata now persists index definitions in KVP, while in-memory index maps are rebuilt from documents on startup, restore, and import.
+- Document insert, update, replace, delete, collection rename, and collection drop paths now maintain secondary index maps.
+
+### Fixed
+
+- `cdb_drop {collection} {index}` now routes through the document-drop path correctly.
+- Removed stale unused document-lock helpers and metadata.
+
 ## [0.2.2] - 2026-05-27
 
 ### Added

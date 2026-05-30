@@ -176,6 +176,7 @@ local functionParams = {
     aggregate = { 'collection', 'group' },
     count = { 'collection' },
     distinct = { 'collection', 'field' },
+    ensureIndex = { 'collection', 'fields' },
     importCollection = { 'collection' },
 }
 
@@ -220,7 +221,7 @@ function utils.groupHandler(responseData, group, keys)
                     end
                 end
                 aggregatedData[idString][sumAlias] = (aggregatedData[idString][sumAlias] or 0) +
-                (document[group.sum] or 0)
+                    (document[group.sum] or 0)
                 aggregatedData[idString].ids[#aggregatedData[idString].ids + 1] = key
             end
         end
