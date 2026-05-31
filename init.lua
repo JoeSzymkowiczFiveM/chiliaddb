@@ -7,7 +7,13 @@ local GetResourceState = GetResourceState
 ChiliadDB = setmetatable({}, {
     __index = function(self, index)
         self[index] = function(...)
-            return chiliaddb[index](nil, ..., resourceName)
+            local caller = debug.getinfo(2, 'Sl')
+
+            return chiliaddb[index](nil, ..., {
+                resource = resourceName,
+                source = caller and caller.short_src or nil,
+                line = caller and caller.currentline or nil,
+            })
         end
 
         return self[index]

@@ -180,16 +180,30 @@ local functionParams = {
     importCollection = { 'collection' },
 }
 
+function utils.formatCaller(resource)
+    if type(resource) == 'table' then
+        local resourceName = resource.resource or 'unknown'
+
+        if resource.source and resource.line then
+            return string.format('%s at %s:%s', resourceName, resource.source, resource.line)
+        end
+
+        return resourceName
+    end
+
+    return resource or 'unknown'
+end
+
 function utils.paramChecker(data, resource, export)
     if not data then
-        lib.print.error(string.format("Missing data parameter. Called from %s.", resource))
+        lib.print.error(string.format("Missing data parameter. Called from %s.", utils.formatCaller(resource)))
         return false
     end
 
     for _, param in ipairs(functionParams[export]) do
         if not data[param] then
             lib.print.error(string.format("%s call missing required parameter '%s'. Called from %s.", export, param,
-                resource))
+                utils.formatCaller(resource)))
             return false
         end
     end

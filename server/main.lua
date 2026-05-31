@@ -20,9 +20,13 @@ local function fireHook(collection, event, ...)
     TriggerEvent(string.format('chiliaddb:hook:%s:%s', collection, event), ...)
 end
 
+local function formatCaller(resource)
+    return utils.formatCaller(resource)
+end
+
 local function databaseCollectionCheck(collection, resource)
     if database[collection] then return true end
-    lib.print.debug(string.format("Collection %s does not exist. Called from %s", collection, resource))
+    lib.print.debug(string.format("Collection %s does not exist. Called from %s", collection, formatCaller(resource)))
     return false
 end
 
@@ -44,9 +48,10 @@ function DropDatabase()
     lib.print.info("Wiped KVP and memory")
 end
 
-function DropCollection(collection)
+function DropCollection(collection, resource)
     if not database[collection] then
-        lib.print.error(string.format("dropCollection failed. Collection %s does not exist", collection))
+        lib.print.error(string.format("dropCollection failed. Collection %s does not exist. Called from %s", collection,
+            formatCaller(resource)))
         return false
     end
     local newList = {}
@@ -1110,7 +1115,7 @@ exports('getCollectionDocumentCount', function(collection, resource)
     if not collection then
         lib.print.error(string.format(
             "getCollectionDocumentCount call was improperly formatted, returning false. Called from %s. Sent data %s",
-            resource, collection))
+            formatCaller(resource), collection))
         return false
     end
     collection = tostring(collection)
@@ -1153,12 +1158,14 @@ exports('createCollection', function(collection, resource)
     collection = tostring(collection)
     if not collection then
         lib.print.error(string.format(
-            "createCollection call was improperly formatted, returning false. Called from %s. Sent data %s", resource,
-            collection))
+            "createCollection call was improperly formatted, returning false. Called from %s. Sent data %s",
+            formatCaller(resource), collection))
         return false
     end
     if collections[collection] then
-        lib.print.error(string.format("createCollection call failed. Collection %s already exists", collection))
+        lib.print.error(string.format("createCollection call failed. Collection %s already exists. Called from %s",
+            collection,
+            formatCaller(resource)))
         return false
     end
     createCollection(collection)
@@ -1168,7 +1175,7 @@ end)
 exports('collectionExists', function(collection, resource)
     if not collection then
         lib.print.error(string.format("collectionExists call was improperly formatted, returning false. Called from %s.",
-            resource))
+            formatCaller(resource)))
         return false
     end
     collection = tostring(collection)
@@ -1181,7 +1188,7 @@ exports('ensureIndex', function(data, resource)
     local collection = tostring(data.collection)
     local fields = normalizeIndexFields(data.fields)
     if not fields then
-        lib.print.error(string.format('ensureIndex call has invalid fields. Called from %s.', resource))
+        lib.print.error(string.format('ensureIndex call has invalid fields. Called from %s.', formatCaller(resource)))
         return false
     end
 
@@ -1277,7 +1284,7 @@ exports('setCollectionRetention', function(data, resource)
     if not data or not data.collection then
         lib.print.error(string.format(
             "setCollectionRetention call was improperly formatted, returning false. Called from %s. Sent data %s",
-            resource,
+            formatCaller(resource),
             json.encode(data)))
         return false
     end
@@ -1289,7 +1296,7 @@ exports('setCollectionRetention', function(data, resource)
         if not data.retention then
             lib.print.error(string.format(
                 "setCollectionRetention call was improperly formatted, returning false. Called from %s. Sent data %s",
-                resource, json.encode(data)))
+                formatCaller(resource), json.encode(data)))
             return false
         end
         if not databaseCollectionCheck(collection, resource) then
@@ -1305,7 +1312,7 @@ exports('getCollectionProperties', function(collection, resource)
     if not collection then
         lib.print.error(string.format(
             "getCollectionProperties call was improperly formatted, returning false. Called from %s. Sent data %s",
-            resource,
+            formatCaller(resource),
             json.encode(collection)))
         return false
     end
@@ -1313,14 +1320,14 @@ exports('getCollectionProperties', function(collection, resource)
 end)
 
 exports('backupDatabase', function(resource)
-    lib.print.info(string.format("BackupDatabase called from %s", resource))
+    lib.print.info(string.format("BackupDatabase called from %s", formatCaller(resource)))
     BackupDatabase()
 end)
 
 exports('exportCollection', function(collection, resource)
     if not collection then
         lib.print.error(string.format("exportCollection call was improperly formatted, returning false. Called from %s",
-            resource))
+            formatCaller(resource)))
         return false
     end
     return ExportCollection(collection)
@@ -1329,7 +1336,8 @@ end)
 exports('importCollection', function(data, resource)
     if not utils.paramChecker(data, resource, 'importCollection') then return false end
     if not data.filename then
-        lib.print.error(string.format("importCollection call is missing 'filename'. Called from %s", resource))
+        lib.print.error(string.format("importCollection call is missing 'filename'. Called from %s",
+            formatCaller(resource)))
         return false
     end
     return ImportCollection(data.collection, data.filename)
