@@ -1421,5 +1421,9 @@ AddEventHandler('onResourceStop', function(resource)
     doSyncToKvp()
 end)
 
+AddEventHandler('playerDropped', function()
+    doSyncToKvp()
+end)
+
 local cronString = string.format('*/%s * * * *', GetConvarInt('chiliaddb:syncInterval', 5))
 lib.cron.new(cronString, SyncDataToKvp)

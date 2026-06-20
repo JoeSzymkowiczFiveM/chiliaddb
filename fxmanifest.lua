@@ -4,7 +4,7 @@ game 'gta5'
 
 name 'chiliaddb'
 author 'JoeSzymkowiczFivem'
-version '0.3.1'
+version '0.3.2'
 license 'CC0 1.0 Universal (CC0 1.0)'
 description 'A datastore and syntax wrapper for FiveM KVP'
 
