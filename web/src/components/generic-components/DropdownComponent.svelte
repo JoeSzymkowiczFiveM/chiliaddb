@@ -35,7 +35,7 @@
     });
 </script>
 
-<div class="dropdown-wrap" style="width: {width};" bind:this={dropdownElement}>
+<div class="dropdown-wrap {isDropdownOpen ? 'dropdown-open' : ''}" style="width: {width};" bind:this={dropdownElement}>
     <button id='dropdown-{idValue}' class="dropdown-wrapper" disabled={isDisabled} on:click={toggleDropdown}>
         <div class="selectedValue">{selectedValue.name}</div>
         <Fa icon={isDropdownOpen ? faChevronUp : faChevronDown} />
@@ -59,16 +59,22 @@
 <style>
     .dropdown-wrap {
         position: relative;
-        height: 100%;
+        height: 2vw;
+        z-index: 20;
+    }
+
+    .dropdown-open {
         z-index: 99999999;
     }
 
     .dropdown-wrapper {
-        height: 90%;
-        width: inherit;
+        height: 100%;
+        width: 100%;
         padding: 0 0.75vw;
-        border: 1px solid rgba(255,255,255,0.55);
-        border-radius: 0.2vw;
+        border: 1px solid rgba(255,255,255,0.25);
+        border-radius: 0.3vw;
+        background-color: var(--dd-bg);
+        color: var(--text);
         display: flex;
         flex-direction: row;
         justify-content: space-between;
@@ -76,31 +82,67 @@
         align-items: center;
     }
 
+    .selectedValue {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
     .drowndown-content-wrapper {
+        position: absolute;
+        left: 0;
+        top: calc(100% + 0.25vw);
         z-index: 99999999;
-        margin-top: 0.25vw;
-        height: 9vw;
-        width: inherit;
-        border-radius: 0.2vw;
-        border: 1px solid rgba(255,255,255,0.55);
-        background-color: var(--bg);
+        max-height: 11vw;
+        width: 100%;
+        border-radius: 0.3vw;
+        border: 1px solid rgba(255,255,255,0.25);
+        background-color: rgba(24, 24, 24, 0.98);
+        box-shadow: 0 0.65vw 1.8vw rgba(0, 0, 0, 0.45);
         display: flex;
         flex-direction: column;
-        gap: 0.5vw;
         overflow-y: auto;
+        overscroll-behavior: contain;
+        padding: 0.2vw 0;
+    }
+
+    .drowndown-content-wrapper::-webkit-scrollbar {
+        width: 0.35vw !important;
+    }
+
+    .drowndown-content-wrapper::-webkit-scrollbar-thumb {
+        background: var(--highlighted-text-light);
+        border-radius: 1vw;
     }
 
     .each-dropdown-content-item {
-        height: 1.5vw;
+        appearance: none;
+        width: 100%;
+        min-height: 1.75vw;
         display: flex;
         align-items: center;
-        padding: 0.25vw 0.5vw;
-        font-size: 0.8vw;
+        padding: 0.3vw 0.8vw;
+        border: 0;
+        border-radius: 0;
+        border-left: 0.15vw solid transparent;
+        background: transparent;
+        color: var(--text);
+        font-size: 0.78vw;
+        text-align: left;
+    }
+
+    .each-dropdown-content-item + .each-dropdown-content-item {
+        border-top: 1px solid rgba(255, 255, 255, 0.055);
+    }
+
+    .each-dropdown-content-item:hover:not(:disabled) {
+        background-color: rgba(255, 255, 255, 0.06);
+        color: white;
     }
 
     .selected-item {
-        border-radius: 0.2vw;
-        background-color: var(--highlighted-text-025);
+        border-left-color: var(--highlighted-text);
+        background-color: rgba(47, 109, 208, 0.16);
         color: rgb(255,255,255);
     }
 </style>

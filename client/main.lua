@@ -17,6 +17,11 @@ RegisterNUICallback('getCollectionData', function(data, cb)
     cb(result)
 end)
 
+RegisterNUICallback('getCollectionPage', function(data, cb)
+    local result = lib.callback.await('chiliaddb:server:getCollectionPage', false, data.collection, data.offset, data.limit, data.documentId)
+    cb(result)
+end)
+
 RegisterNUICallback('createNewIndex', function(data, cb)
     local result = lib.callback.await('chiliaddb:server:createNewIndex', false, data.collection)
     cb(result)

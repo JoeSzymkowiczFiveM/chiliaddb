@@ -1,4 +1,5 @@
-import { Readable, readable } from "svelte/store";
+import { readable } from "svelte/store";
+import type { Readable } from "svelte/store";
 import mainMethods from "./mainStore";
 
 interface generalState {

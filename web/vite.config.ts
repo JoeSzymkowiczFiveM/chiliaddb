@@ -31,6 +31,16 @@ export default defineConfig(({ mode }) => {
       globals: true,
       environment: 'jsdom',
     },
+    css: {
+      preprocessorOptions: {
+        scss: {
+          api: 'modern-compiler',
+        },
+        sass: {
+          api: 'modern-compiler',
+        },
+      },
+    },
     base: './', // fivem nui needs to have local dir reference
     build: {
       minify: isProduction,
