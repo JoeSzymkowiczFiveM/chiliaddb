@@ -16,7 +16,7 @@ export default async function fetchNui(eventName: string, data: unknown = {}) {
     }
   }
 
-  const resourceName = "chiliaddb";
+  const resourceName = getResourceName();
   
   try {
     const resp = await fetch(`https://${resourceName}/${eventName}`, options);

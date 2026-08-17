@@ -36,10 +36,10 @@
                 errorMessage = response.error;
             } else {
                 json = response;
-                // content = {
-                //     text: undefined,
-                //     json
-                // }
+                content = {
+                    text: undefined,
+                    json
+                }
             }
         }
 
@@ -67,8 +67,7 @@
                     {errorMessage}
                 </p>
             {:else if json}
-                <JsonView {json} />
-                <!-- <JSONEditor bind:content /> -->
+                <JSONEditor {content} />
             {/if}
         {/if}
     </div>

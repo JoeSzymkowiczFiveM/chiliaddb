@@ -654,7 +654,21 @@ function PrintDatabaseInfo(args)
                 return
             end
             local key = string.format("%s", args.collection)
-            print(key, json.encode(database[args.collection], { indent = true }))
+            if args.id then
+                if not database[args.collection][args.id] then
+                    lib.print.error(string.format("cdb_print command failed. Document %d does not exist in collection %s",
+                        args.id, args.collection))
+                    return
+                end
+                key = string.format("%s:%d", args.collection, args.id)
+                print(key, json.encode(database[args.collection][args.id], { indent = true }))
+            else
+                local ids = collections[args.collection].ids
+                for i = 1, #ids do
+                    local id = ids[i]
+                    print(string.format("%d:", id), json.encode(database[args.collection][id], { indent = true }))
+                end
+            end
         end
     end
 end
@@ -1346,6 +1360,81 @@ end)
 lib.callback.register('chiliaddb:server:getCollectionData', function(source, collection)
     if not utils.dbAccessCheck(source) then return {} end
     return database[collection]
+end)
+
+lib.callback.register('chiliaddb:server:getCollectionPage', function(source, collection, offset, limit, documentId)
+    if not utils.dbAccessCheck(source) then return { ok = false, error = 'Access denied' } end
+
+    collection = tostring(collection or '')
+    if not database[collection] or not collections[collection] then
+        return { ok = false, error = string.format('Collection %s does not exist', collection) }
+    end
+
+    limit = math.floor(tonumber(limit) or 50)
+    if limit < 1 then limit = 50 end
+    if limit > 500 then limit = 500 end
+
+    local ids = collections[collection].ids or {}
+    local total = #ids
+    local documents = {}
+    local pageIds = {}
+
+    if documentId ~= nil and documentId ~= '' then
+        local id = tonumber(documentId)
+        if not id then
+            return { ok = false, error = 'Document ID must be a number' }
+        end
+
+        local document = database[collection][id]
+        if not document then
+            return { ok = false, error = string.format('Document %s does not exist in %s', id, collection) }
+        end
+
+        documents[tostring(id)] = document
+        pageIds[1] = id
+
+        return {
+            ok = true,
+            collection = collection,
+            documents = documents,
+            ids = pageIds,
+            offset = 0,
+            limit = 1,
+            total = total,
+            hasPrevious = false,
+            hasNext = false,
+        }
+    end
+
+    offset = math.floor(tonumber(offset) or 0)
+    if offset < 0 then offset = 0 end
+    if total > 0 and offset >= total then
+        offset = math.max(total - limit, 0)
+    end
+
+    local last = math.min(offset + limit, total)
+    local pageIndex = 1
+    for i = offset + 1, last do
+        local id = ids[i]
+        local document = database[collection][id]
+        if document then
+            documents[tostring(id)] = document
+            pageIds[pageIndex] = id
+            pageIndex = pageIndex + 1
+        end
+    end
+
+    return {
+        ok = true,
+        collection = collection,
+        documents = documents,
+        ids = pageIds,
+        offset = offset,
+        limit = limit,
+        total = total,
+        hasPrevious = offset > 0,
+        hasNext = last < total,
+    }
 end)
 
 lib.callback.register('chiliaddb:server:createNewIndex', function(source, collection)

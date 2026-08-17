@@ -1,7 +1,7 @@
-import sveltePreprocess from 'svelte-preprocess'
+import { vitePreprocess } from '@sveltejs/vite-plugin-svelte'
 
 export default {
-  // Consult https://github.com/sveltejs/svelte-preprocess
-  // for more information about preprocessors
-  preprocess: sveltePreprocess()
+  // Use Vite's preprocessing pipeline instead of svelte-preprocess so Sass is
+  // compiled through Vite's modern Sass API support.
+  preprocess: vitePreprocess()
 }

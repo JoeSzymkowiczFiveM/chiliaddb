@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.4.0] - 2026-08-17
+
+### Added
+
+- Paginated collection loading for the database explorer UI through the new `getCollectionPage` NUI/server callback path.
+- Collection explorer pagination controls, including page size selection, previous/next navigation, visible range totals, refresh support, and direct document-id jump/search.
+
+### Changed
+
+- Updated the database explorer UI to load collection documents on demand instead of loading an entire collection at once, improving usability for larger collections.
+- `cdb_print {collection}` now prints each document separately with its internal document id label, making collection output easier to map back to individual records.
+
+### Fixed
+
+- `cdb_print {collection} {id}` now respects the document id argument and reports an error when the requested document does not exist instead of printing the whole collection.
+
 ## [0.3.2] - 2026-06-19
 
 ### Added
