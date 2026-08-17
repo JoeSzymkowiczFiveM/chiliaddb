@@ -654,7 +654,21 @@ function PrintDatabaseInfo(args)
                 return
             end
             local key = string.format("%s", args.collection)
-            print(key, json.encode(database[args.collection], { indent = true }))
+            if args.id then
+                if not database[args.collection][args.id] then
+                    lib.print.error(string.format("cdb_print command failed. Document %d does not exist in collection %s",
+                        args.id, args.collection))
+                    return
+                end
+                key = string.format("%s:%d", args.collection, args.id)
+                print(key, json.encode(database[args.collection][args.id], { indent = true }))
+            else
+                local ids = collections[args.collection].ids
+                for i = 1, #ids do
+                    local id = ids[i]
+                    print(string.format("%d:", id), json.encode(database[args.collection][id], { indent = true }))
+                end
+            end
         end
     end
 end
