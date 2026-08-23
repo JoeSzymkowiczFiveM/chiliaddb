@@ -95,7 +95,8 @@ set chiliaddb:syncInterval 5
 
 ## 🖼️ Screenshots
 
-![image](https://github.com/user-attachments/assets/df41d60e-6939-4a2d-adc2-84958268bee3)
+<img width="1915" height="1075" alt="image" src="https://github.com/user-attachments/assets/5fdae460-45e2-41cb-9b71-a7deda4637b2" />
+
 
 
 ## 👐 Credit
